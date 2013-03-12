@@ -71,7 +71,7 @@ for file in $NEEDED_FILES; do
     fi
 done
 if [ "$have_all_files" == "0" ]; then
-    echo "[ERROR] *** Please generate all necessary prebuilt binaries under external/gnu-efi before building gummiboot."
+    echo "[ERROR] *** Please generate all necessary prebuilt binaries under external/gnu-efi before building uefi_shim."
     echo "[ERROR] *** Dependencies not satisfied. aborting..."
     exit 1
 fi
