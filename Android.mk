@@ -12,7 +12,7 @@ LOCAL_MODULE_TAGS := optional
 LOCAL_MODULE_CLASS := ETC
 LOCAL_MODULE_PATH := $(PRODUCT_OUT)/efi
 LOCAL_MODULE_STEM := $(LOCAL_MODULE)
-LOCAL_SRC_FILES := ../../prebuilts/tools/linux-$(arch_name)/uefi_shim/MokManager.efi.signed
+LOCAL_SRC_FILES := ../../prebuilts/tools/linux-$(arch_name)/uefi_shim/MokManager.efi
 include $(BUILD_PREBUILT)
 
 MOKMANAGER_EFI := $(PRODUCT_OUT)/efi/MokManager.efi

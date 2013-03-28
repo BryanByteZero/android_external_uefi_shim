@@ -22,8 +22,8 @@ PREBUILT_TOP=$ANDROID_BUILD_TOP/prebuilts/tools
 copy_to_prebuilts()
 {
     PREBUILT_FILES=" \
-        MokManager.efi.signed MokManager.efi.debug \
-        shim.efi shim.efi.debug \
+        MokManager.efi MokManager.unsigned.efi MokManager.debug.efi \
+        shim.efi shim.unsigned.efi shim.debug.efi \
         "
 
     # Sanity check
