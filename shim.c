@@ -43,6 +43,22 @@
 #include "shim_cert.h"
 #include "ucs2.h"
 
+#define pr_error(fmt, ...) do { \
+	Print(fmt, ##__VA_ARGS__); \
+	pause(2); \
+} while(0)
+
+#define DEBUG 1
+
+#if DEBUG
+#define pr_debug(fmt, ...) do { \
+	Print(fmt, ##__VA_ARGS__); \
+	pause(2); \
+} while(0)
+#else
+#define pr_debug(...) (void)0
+#endif
+
 #define DEFAULT_LOADER L"\\gummiboot.efi"
 #define FALLBACK L"\\fallback.efi"
 #define MOK_MANAGER L"\\MokManager.efi"
@@ -77,6 +93,12 @@ typedef struct {
 	UINT8 *Mok;
 } MokListNode;
 
+
+static void pause(int seconds)
+{
+	uefi_call_wrapper(BS->Stall, 1,  seconds * 1000000);
+}
+
 static EFI_STATUS get_variable (CHAR16 *name, EFI_GUID guid, UINT32 *attributes,
 				UINTN *size, void **buffer)
 {
@@ -93,7 +115,7 @@ static EFI_STATUS get_variable (CHAR16 *name, EFI_GUID guid, UINT32 *attributes,
 	*buffer = AllocatePool(*size);
 
 	if (!*buffer) {
-		Print(L"Unable to allocate variable buffer\n");
+		pr_error(L"Unable to allocate variable buffer\n");
 		return EFI_OUT_OF_RESOURCES;
 	}
 
@@ -133,7 +155,7 @@ static EFI_STATUS relocate_coff (PE_COFF_LOADER_IMAGE_CONTEXT *context,
 	context->PEHdr->Pe32Plus.OptionalHeader.ImageBase = (UINT64)data;
 
 	if (context->NumberOfRvaAndSizes <= EFI_IMAGE_DIRECTORY_ENTRY_BASERELOC) {
-		Print(L"Image has no relocation entry\n");
+		pr_error(L"Image has no relocation entry\n");
 		return EFI_UNSUPPORTED;
 	}
 
@@ -141,7 +163,7 @@ static EFI_STATUS relocate_coff (PE_COFF_LOADER_IMAGE_CONTEXT *context,
 	RelocBaseEnd = ImageAddress(data, size, context->RelocDir->VirtualAddress + context->RelocDir->Size - 1);
 
 	if (!RelocBase || !RelocBaseEnd) {
-		Print(L"Reloc table overflows binary\n");
+		pr_error(L"Reloc table overflows binary\n");
 		return EFI_UNSUPPORTED;
 	}
 
@@ -152,13 +174,13 @@ static EFI_STATUS relocate_coff (PE_COFF_LOADER_IMAGE_CONTEXT *context,
 		RelocEnd = (UINT16 *) ((char *) RelocBase + RelocBase->SizeOfBlock);
 
 		if ((void *)RelocEnd < data || (void *)RelocEnd > ImageEnd) {
-			Print(L"Reloc entry overflows binary\n");
+			pr_error(L"Reloc entry overflows binary\n");
 			return EFI_UNSUPPORTED;
 		}
 
 		FixupBase = ImageAddress(data, size, RelocBase->VirtualAddress);
 		if (!FixupBase) {
-			Print(L"Invalid fixupbase\n");
+			pr_error(L"Invalid fixupbase\n");
 			return EFI_UNSUPPORTED;
 		}
 
@@ -207,7 +229,7 @@ static EFI_STATUS relocate_coff (PE_COFF_LOADER_IMAGE_CONTEXT *context,
 				break;
 
 			default:
-				Print(L"Unknown relocation\n");
+				pr_error(L"Unknown relocation\n");
 				return EFI_UNSUPPORTED;
 			}
 			Reloc += 1;
@@ -430,15 +452,14 @@ static BOOLEAN secure_mode (void)
 
 	/* FIXME - more paranoia here? */
 	if (status != EFI_SUCCESS || sb != 1) {
-		Print(L"Secure boot not enabled\n");
+		pr_debug(L"Secure boot not enabled\n");
 		return FALSE;
 	}
-
 	status = get_variable(L"SetupMode", global_var, &attributes, &charsize,
 			      (void *)&setupmode);
 
 	if (status == EFI_SUCCESS && setupmode == 1) {
-		Print(L"Platform is in setup mode\n");
+		pr_debug(L"Platform is in setup mode\n");
 		return FALSE;
 	}
 
@@ -473,12 +494,12 @@ static EFI_STATUS generate_hash (char *data, int datasize,
 	sha1ctx = AllocatePool(sha1ctxsize);
 
 	if (!sha256ctx || !sha1ctx) {
-		Print(L"Unable to allocate memory for hash context\n");
+		pr_error(L"Unable to allocate memory for hash context\n");
 		return EFI_OUT_OF_RESOURCES;
 	}
 
 	if (!Sha256Init(sha256ctx) || !Sha1Init(sha1ctx)) {
-		Print(L"Unable to initialise hash\n");
+		pr_error(L"Unable to initialise hash\n");
 		status = EFI_OUT_OF_RESOURCES;
 		goto done;
 	}
@@ -490,7 +511,7 @@ static EFI_STATUS generate_hash (char *data, int datasize,
 
 	if (!(Sha256Update(sha256ctx, hashbase, hashsize)) ||
 	    !(Sha1Update(sha1ctx, hashbase, hashsize))) {
-		Print(L"Unable to generate hash\n");
+		pr_error(L"Unable to generate hash\n");
 		status = EFI_OUT_OF_RESOURCES;
 		goto done;
 	}
@@ -502,7 +523,7 @@ static EFI_STATUS generate_hash (char *data, int datasize,
 
 	if (!(Sha256Update(sha256ctx, hashbase, hashsize)) ||
 	    !(Sha1Update(sha1ctx, hashbase, hashsize))) {
-		Print(L"Unable to generate hash\n");
+		pr_error(L"Unable to generate hash\n");
 		status = EFI_OUT_OF_RESOURCES;
 		goto done;
 	}
@@ -514,7 +535,7 @@ static EFI_STATUS generate_hash (char *data, int datasize,
 
 	if (!(Sha256Update(sha256ctx, hashbase, hashsize)) ||
 	    !(Sha1Update(sha1ctx, hashbase, hashsize))) {
-		Print(L"Unable to generate hash\n");
+		pr_error(L"Unable to generate hash\n");
 		status = EFI_OUT_OF_RESOURCES;
 		goto done;
 	}
@@ -535,14 +556,14 @@ static EFI_STATUS generate_hash (char *data, int datasize,
 	}
 
 	if (SumOfSectionBytes >= datasize) {
-		Print(L"Malformed binary: %x %x\n", SumOfSectionBytes, size);
+		pr_error(L"Malformed binary: %x %x\n", SumOfSectionBytes, size);
 		status = EFI_INVALID_PARAMETER;
 		goto done;
 	}
 
 	SectionHeader = (EFI_IMAGE_SECTION_HEADER *) AllocateZeroPool (sizeof (EFI_IMAGE_SECTION_HEADER) * context->PEHdr->Pe32.FileHeader.NumberOfSections);
 	if (SectionHeader == NULL) {
-		Print(L"Unable to allocate section header\n");
+		pr_error(L"Unable to allocate section header\n");
 		status = EFI_OUT_OF_RESOURCES;
 		goto done;
 	}
@@ -568,14 +589,14 @@ static EFI_STATUS generate_hash (char *data, int datasize,
 		hashsize  = (unsigned int) Section->SizeOfRawData;
 
 		if (!hashbase) {
-			Print(L"Malformed section header\n");
+			pr_error(L"Malformed section header\n");
 			status = EFI_INVALID_PARAMETER;
 			goto done;
 		}
 
 		if (!(Sha256Update(sha256ctx, hashbase, hashsize)) ||
 		    !(Sha1Update(sha1ctx, hashbase, hashsize))) {
-			Print(L"Unable to generate hash\n");
+			pr_error(L"Unable to generate hash\n");
 			status = EFI_OUT_OF_RESOURCES;
 			goto done;
 		}
@@ -592,7 +613,7 @@ static EFI_STATUS generate_hash (char *data, int datasize,
 
 		if (!(Sha256Update(sha256ctx, hashbase, hashsize)) ||
 		    !(Sha1Update(sha1ctx, hashbase, hashsize))) {
-			Print(L"Unable to generate hash\n");
+			pr_error(L"Unable to generate hash\n");
 			status = EFI_OUT_OF_RESOURCES;
 			goto done;
 		}
@@ -600,7 +621,7 @@ static EFI_STATUS generate_hash (char *data, int datasize,
 
 	if (!(Sha256Final(sha256ctx, sha256hash)) ||
 	    !(Sha1Final(sha1ctx, sha1hash))) {
-		Print(L"Unable to finalise hash\n");
+		pr_error(L"Unable to finalise hash\n");
 		status = EFI_OUT_OF_RESOURCES;
 		goto done;
 	}
@@ -630,9 +651,9 @@ static EFI_STATUS verify_mok (void) {
 			      &MokListDataSize, &MokListData);
 
 	if (attributes & EFI_VARIABLE_RUNTIME_ACCESS) {
-		Print(L"MokList is compromised!\nErase all keys in MokList!\n");
+		pr_error(L"MokList is compromised!\nErase all keys in MokList!\n");
 		if (LibDeleteVariable(L"MokList", &shim_lock_guid) != EFI_SUCCESS) {
-			Print(L"Failed to erase MokList\n");
+			pr_error(L"Failed to erase MokList\n");
 		}
 		status = EFI_ACCESS_DENIED;
 		return status;
@@ -654,19 +675,19 @@ static EFI_STATUS verify_buffer (char *data, int datasize,
 	unsigned int size = datasize;
 
 	if (context->SecDir->Size == 0) {
-		Print(L"Empty security header\n");
+		pr_error(L"Empty security header\n");
 		return EFI_INVALID_PARAMETER;
 	}
 
 	cert = ImageAddress (data, size, context->SecDir->VirtualAddress);
 
 	if (!cert) {
-		Print(L"Certificate located outside the image\n");
+		pr_error(L"Certificate located outside the image\n");
 		return EFI_INVALID_PARAMETER;
 	}
 
 	if (cert->Hdr.wCertificateType != WIN_CERT_TYPE_PKCS_SIGNED_DATA) {
-		Print(L"Unsupported certificate type %x\n",
+		pr_error(L"Unsupported certificate type %x\n",
 		      cert->Hdr.wCertificateType);
 		return EFI_UNSUPPORTED;
 	}
@@ -687,7 +708,7 @@ static EFI_STATUS verify_buffer (char *data, int datasize,
 	status = check_blacklist(cert, sha256hash, sha1hash);
 
 	if (status != EFI_SUCCESS) {
-		Print(L"Binary is blacklisted\n");
+		pr_error(L"Binary is blacklisted\n");
 		return status;
 	}
 
@@ -698,7 +719,7 @@ static EFI_STATUS verify_buffer (char *data, int datasize,
 	status = check_whitelist(cert, sha256hash, sha1hash);
 
 	if (status == EFI_SUCCESS) {
-		Print(L"Binary is whitelisted\n");
+		pr_debug(L"Binary is whitelisted\n");
 		return status;
 	}
 
@@ -710,7 +731,7 @@ static EFI_STATUS verify_buffer (char *data, int datasize,
 			       shim_cert, sizeof(shim_cert), sha256hash,
 			       SHA256_DIGEST_SIZE)) {
 		status = EFI_SUCCESS;
-		Print(L"Binary is verified by the vendor certificate\n");
+		pr_debug(L"Binary is verified by the shim certificate\n");
 		return status;
 	}
 
@@ -723,11 +744,11 @@ static EFI_STATUS verify_buffer (char *data, int datasize,
 			       vendor_cert, vendor_cert_size, sha256hash,
 			       SHA256_DIGEST_SIZE)) {
 		status = EFI_SUCCESS;
-		Print(L"Binary is verified by the vendor certificate\n");
+		pr_debug(L"Binary is verified by the vendor certificate\n");
 		return status;
 	}
 
-	Print(L"Invalid signature\n");
+	pr_error(L"Invalid signature\n");
 	status = EFI_ACCESS_DENIED;
 
 	return status;
@@ -743,7 +764,7 @@ static EFI_STATUS read_header(void *data, unsigned int datasize,
 	EFI_IMAGE_OPTIONAL_HEADER_UNION *PEHdr = data;
 
 	if (datasize < sizeof(EFI_IMAGE_DOS_HEADER)) {
-		Print(L"Invalid image\n");
+		pr_error(L"Invalid image\n");
 		return EFI_UNSUPPORTED;
 	}
 
@@ -751,22 +772,22 @@ static EFI_STATUS read_header(void *data, unsigned int datasize,
 		PEHdr = (EFI_IMAGE_OPTIONAL_HEADER_UNION *)((char *)data + DosHdr->e_lfanew);
 
 	if ((((UINT8 *)PEHdr - (UINT8 *)data) + sizeof(EFI_IMAGE_OPTIONAL_HEADER_UNION)) > datasize) {
-		Print(L"Invalid image\n");
+		pr_error(L"Invalid image\n");
 		return EFI_UNSUPPORTED;
 	}
 
 	if (PEHdr->Te.Signature != EFI_IMAGE_NT_SIGNATURE) {
-		Print(L"Unsupported image type\n");
+		pr_error(L"Unsupported image type\n");
 		return EFI_UNSUPPORTED;
 	}
 
 	if (PEHdr->Pe32.FileHeader.Characteristics & EFI_IMAGE_FILE_RELOCS_STRIPPED) {
-		Print(L"Unsupported image - Relocations have been stripped\n");
+		pr_error(L"Unsupported image - Relocations have been stripped\n");
 		return EFI_UNSUPPORTED;
 	}
 
 	if (PEHdr->Pe32.OptionalHeader.Magic != EFI_IMAGE_NT_OPTIONAL_HDR64_MAGIC) {
-		Print(L"Only 64-bit images supported\n");
+		pr_error(L"Only 64-bit images supported\n");
 		return EFI_UNSUPPORTED;
 	}
 
@@ -782,17 +803,17 @@ static EFI_STATUS read_header(void *data, unsigned int datasize,
 	context->SecDir = (EFI_IMAGE_DATA_DIRECTORY *) &PEHdr->Pe32Plus.OptionalHeader.DataDirectory[EFI_IMAGE_DIRECTORY_ENTRY_SECURITY];
 
 	if (context->ImageSize < context->SizeOfHeaders) {
-		Print(L"Invalid image\n");
+		pr_error(L"Invalid image\n");
 		return EFI_UNSUPPORTED;
 	}
 
 	if (((UINT8 *)context->SecDir - (UINT8 *)data) > (datasize - sizeof(EFI_IMAGE_DATA_DIRECTORY))) {
-		Print(L"Invalid image\n");
+		pr_error(L"Invalid image\n");
 		return EFI_UNSUPPORTED;
 	}
 
 	if (context->SecDir->VirtualAddress >= datasize) {
-		Print(L"Malformed security header\n");
+		pr_error(L"Malformed security header\n");
 		return EFI_INVALID_PARAMETER;
 	}
 	return EFI_SUCCESS;
@@ -816,7 +837,7 @@ static EFI_STATUS handle_image (void *data, unsigned int datasize,
 	 */
 	efi_status = read_header(data, datasize, &context);
 	if (efi_status != EFI_SUCCESS) {
-		Print(L"Failed to read header\n");
+		pr_error(L"Failed to read header\n");
 		return efi_status;
 	}
 
@@ -827,7 +848,7 @@ static EFI_STATUS handle_image (void *data, unsigned int datasize,
 		efi_status = verify_buffer(data, datasize, &context);
 
 		if (efi_status != EFI_SUCCESS) {
-			Print(L"Verification failed\n");
+			pr_error(L"Verification failed\n");
 			return efi_status;
 		}
 	}
@@ -835,7 +856,7 @@ static EFI_STATUS handle_image (void *data, unsigned int datasize,
 	buffer = AllocatePool(context.ImageSize);
 
 	if (!buffer) {
-		Print(L"Failed to allocate image buffer\n");
+		pr_error(L"Failed to allocate image buffer\n");
 		return EFI_OUT_OF_RESOURCES;
 	}
 
@@ -855,7 +876,7 @@ static EFI_STATUS handle_image (void *data, unsigned int datasize,
 		end = ImageAddress (buffer, context.ImageSize, Section->VirtualAddress + size - 1);
 
 		if (!base || !end) {
-			Print(L"Invalid section size\n");
+			pr_error(L"Invalid section size\n");
 			return EFI_UNSUPPORTED;
 		}
 
@@ -874,7 +895,7 @@ static EFI_STATUS handle_image (void *data, unsigned int datasize,
 	efi_status = relocate_coff(&context, buffer);
 
 	if (efi_status != EFI_SUCCESS) {
-		Print(L"Relocation failed\n");
+		pr_error(L"Relocation failed\n");
 		FreePool(buffer);
 		return efi_status;
 	}
@@ -892,7 +913,7 @@ static EFI_STATUS handle_image (void *data, unsigned int datasize,
 	li->LoadOptionsSize = load_options_size;
 
 	if (!entry_point) {
-		Print(L"Invalid entry point\n");
+		pr_error(L"Invalid entry point\n");
 		FreePool(buffer);
 		return EFI_UNSUPPORTED;
 	}
@@ -997,7 +1018,7 @@ static EFI_STATUS generate_path(EFI_LOADED_IMAGE *li, CHAR16 *ImagePath,
 	*PathName = AllocatePool(StrSize(bootpath) + StrSize(ImagePath));
 
 	if (!*PathName) {
-		Print(L"Failed to allocate path buffer\n");
+		pr_error(L"Failed to allocate path buffer\n");
 		efi_status = EFI_OUT_OF_RESOURCES;
 		goto error;
 	}
@@ -1038,14 +1059,14 @@ static EFI_STATUS load_image (EFI_LOADED_IMAGE *li, void **data,
 				       (void **)&drive);
 
 	if (efi_status != EFI_SUCCESS) {
-		Print(L"Failed to find fs\n");
+		pr_error(L"Failed to find fs\n");
 		goto error;
 	}
 
 	efi_status = uefi_call_wrapper(drive->OpenVolume, 2, drive, &root);
 
 	if (efi_status != EFI_SUCCESS) {
-		Print(L"Failed to open fs\n");
+		pr_error(L"Failed to open fs\n");
 		goto error;
 	}
 
@@ -1056,14 +1077,14 @@ static EFI_STATUS load_image (EFI_LOADED_IMAGE *li, void **data,
 				       EFI_FILE_MODE_READ, 0);
 
 	if (efi_status != EFI_SUCCESS) {
-		Print(L"Failed to open %s - %lx\n", PathName, efi_status);
+		pr_error(L"Failed to open %s - %lx\n", PathName, efi_status);
 		goto error;
 	}
 
 	fileinfo = AllocatePool(buffersize);
 
 	if (!fileinfo) {
-		Print(L"Unable to allocate file info buffer\n");
+		pr_error(L"Unable to allocate file info buffer\n");
 		efi_status = EFI_OUT_OF_RESOURCES;
 		goto error;
 	}
@@ -1079,7 +1100,7 @@ static EFI_STATUS load_image (EFI_LOADED_IMAGE *li, void **data,
 		FreePool(fileinfo);
 		fileinfo = AllocatePool(buffersize);
 		if (!fileinfo) {
-			Print(L"Unable to allocate file info buffer\n");
+			pr_error(L"Unable to allocate file info buffer\n");
 			efi_status = EFI_OUT_OF_RESOURCES;
 			goto error;
 		}
@@ -1089,7 +1110,7 @@ static EFI_STATUS load_image (EFI_LOADED_IMAGE *li, void **data,
 	}
 
 	if (efi_status != EFI_SUCCESS) {
-		Print(L"Unable to get file info\n");
+		pr_error(L"Unable to get file info\n");
 		goto error;
 	}
 
@@ -1098,7 +1119,7 @@ static EFI_STATUS load_image (EFI_LOADED_IMAGE *li, void **data,
 	*data = AllocatePool(buffersize);
 
 	if (!*data) {
-		Print(L"Unable to allocate file buffer\n");
+		pr_error(L"Unable to allocate file buffer\n");
 		efi_status = EFI_OUT_OF_RESOURCES;
 		goto error;
 	}
@@ -1117,7 +1138,7 @@ static EFI_STATUS load_image (EFI_LOADED_IMAGE *li, void **data,
 	}
 
 	if (efi_status != EFI_SUCCESS) {
-		Print(L"Unexpected return from initial read: %x, buffersize %x\n", efi_status, buffersize);
+		pr_error(L"Unexpected return from initial read: %x, buffersize %x\n", efi_status, buffersize);
 		goto error;
 	}
 
@@ -1182,7 +1203,7 @@ EFI_STATUS start_image(EFI_HANDLE image_handle, CHAR16 *ImagePath)
 				       &loaded_image_protocol, (void **)&li);
 
 	if (efi_status != EFI_SUCCESS) {
-		Print(L"Unable to init protocol\n");
+		pr_error(L"Unable to init protocol\n");
 		return efi_status;
 	}
 
@@ -1192,20 +1213,20 @@ EFI_STATUS start_image(EFI_HANDLE image_handle, CHAR16 *ImagePath)
 	efi_status = generate_path(li, ImagePath, &path, &PathName);
 
 	if (efi_status != EFI_SUCCESS) {
-		Print(L"Unable to generate path: %s\n", ImagePath);
+		pr_error(L"Unable to generate path: %s\n", ImagePath);
 		goto done;
 	}
 
 	if (findNetboot(image_handle)) {
 		efi_status = parseNetbootinfo(image_handle);
 		if (efi_status != EFI_SUCCESS) {
-			Print(L"Netboot parsing failed: %d\n", efi_status);
+			pr_error(L"Netboot parsing failed: %d\n", efi_status);
 			return EFI_PROTOCOL_ERROR;
 		}
 		efi_status = FetchNetbootimage(image_handle, &sourcebuffer,
 					       &sourcesize);
 		if (efi_status != EFI_SUCCESS) {
-			Print(L"Unable to fetch TFTP image\n");
+			pr_error(L"Unable to fetch TFTP image\n");
 			return efi_status;
 		}
 		data = sourcebuffer;
@@ -1217,7 +1238,7 @@ EFI_STATUS start_image(EFI_HANDLE image_handle, CHAR16 *ImagePath)
 		efi_status = load_image(li, &data, &datasize, PathName);
 
 		if (efi_status != EFI_SUCCESS) {
-			Print(L"Failed to load image\n");
+			pr_error(L"Failed to load image\n");
 			goto done;
 		}
 	}
@@ -1234,7 +1255,7 @@ EFI_STATUS start_image(EFI_HANDLE image_handle, CHAR16 *ImagePath)
 	efi_status = handle_image(data, datasize, li);
 
 	if (efi_status != EFI_SUCCESS) {
-		Print(L"Failed to load image\n");
+		pr_error(L"Failed to load image\n");
 		CopyMem(li, &li_bak, sizeof(li_bak));
 		goto done;
 	}
@@ -1302,7 +1323,7 @@ EFI_STATUS mirror_mok_list()
 				       | EFI_VARIABLE_RUNTIME_ACCESS,
 				       DataSize, Data);
 	if (efi_status != EFI_SUCCESS) {
-		Print(L"Failed to set MokListRT %d\n", efi_status);
+		pr_error(L"Failed to set MokListRT %d\n", efi_status);
 	}
 
 done:
@@ -1344,7 +1365,7 @@ EFI_STATUS check_mok_request(EFI_HANDLE image_handle)
 		efi_status = start_image(image_handle, MOK_MANAGER);
 
 		if (efi_status != EFI_SUCCESS) {
-			Print(L"Failed to start MokManager\n");
+			pr_error(L"Failed to start MokManager\n");
 			return efi_status;
 		}
 	}
@@ -1375,9 +1396,9 @@ static EFI_STATUS check_mok_sb (void)
 	 * modified by the OS
 	 */
 	if (attributes & EFI_VARIABLE_RUNTIME_ACCESS) {
-		Print(L"MokSBState is compromised! Clearing it\n");
+		pr_error(L"MokSBState is compromised! Clearing it\n");
 		if (LibDeleteVariable(L"MokSBState", &shim_lock_guid) != EFI_SUCCESS) {
-			Print(L"Failed to erase MokSBState\n");
+			pr_error(L"Failed to erase MokSBState\n");
 		}
 		status = EFI_ACCESS_DENIED;
 	} else {
@@ -1408,7 +1429,7 @@ EFI_STATUS set_second_stage (EFI_HANDLE image_handle)
 	status = uefi_call_wrapper(BS->HandleProtocol, 3, image_handle,
 				   &LoadedImageProtocol, (void **) &li);
 	if (status != EFI_SUCCESS) {
-		Print (L"Failed to get load options\n");
+		pr_error (L"Failed to get load options\n");
 		return status;
 	}
 
