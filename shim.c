@@ -655,13 +655,12 @@ static EFI_STATUS verify_mok (void) {
 	status = get_variable(L"MokList", shim_lock_guid, &attributes,
 			      &MokListDataSize, &MokListData);
 
-	if (attributes & EFI_VARIABLE_RUNTIME_ACCESS) {
+	if (!EFI_ERROR(status) && attributes & EFI_VARIABLE_RUNTIME_ACCESS) {
 		pr_error(L"MokList is compromised!\nErase all keys in MokList!\n");
 		if (LibDeleteVariable(L"MokList", &shim_lock_guid) != EFI_SUCCESS) {
 			pr_error(L"Failed to erase MokList\n");
+			return EFI_ACCESS_DENIED;
 		}
-		status = EFI_ACCESS_DENIED;
-		return status;
 	}
 
 	return EFI_SUCCESS;
@@ -956,7 +955,9 @@ static EFI_STATUS verify_buffer (char *data, int datasize,
 	/*
 	 * Check that the MOK database hasn't been modified
 	 */
-	verify_mok();
+	status = verify_mok();
+	if (status != EFI_SUCCESS)
+		return status;
 
 	/*
 	 * Ensure that the binary isn't blacklisted
