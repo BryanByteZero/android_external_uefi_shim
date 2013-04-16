@@ -1760,6 +1760,7 @@ EFI_STATUS efi_main (EFI_HANDLE image_handle, EFI_SYSTEM_TABLE *passed_systab)
 	shim_lock_interface.Hash = generate_hash;
 	shim_lock_interface.Context = read_header;
 	shim_lock_interface.VerifyBlob = verify_generic_blob;
+	shim_lock_interface.StartImage = start_image;
 
 	systab = passed_systab;
 
