@@ -1646,6 +1646,14 @@ done:
 	return efi_status;
 }
 
+
+EFI_STATUS loader_start_image(EFI_HANDLE image_handle, CHAR16 *ImagePath)
+{
+	loader_is_participating = 1;
+	return start_image(image_handle, ImagePath);
+}
+
+
 /*
  * Load and run grub. If that fails because grub isn't trusted, load and
  * run MokManager.
@@ -1979,6 +1987,7 @@ EFI_STATUS efi_main (EFI_HANDLE image_handle, EFI_SYSTEM_TABLE *passed_systab)
 	shim_lock_interface.Hash = generate_hash;
 	shim_lock_interface.Context = read_header;
 	shim_lock_interface.VerifyBlob = verify_generic_blob;
+	shim_lock_interface.StartImage = loader_start_image;
 
 	systab = passed_systab;
 
