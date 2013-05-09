@@ -10,6 +10,7 @@ else
 	CFLAGS		= -march=i686
 endif
 
+USE_SHIM_KEY    ?= false
 LIB_PATH	= $(EFI_PATH)/lib
 EFI_INCLUDE	= $(EFI_PATH)/include/efi
 EFI_INCLUDES	= -nostdinc -ICryptlib -ICryptlib/Include -I$(EFI_INCLUDE) -I$(EFI_INCLUDE)/$(ARCH) -I$(EFI_INCLUDE)/protocol
@@ -45,11 +46,13 @@ SOURCES	= shim.c shim.h netboot.c signature.h PeImage.h
 MOK_OBJS = MokManager.o
 MOK_SOURCES = MokManager.c shim.h
 
-SHIM_KEY_PREFIX ?= $(ANDROID_BUILD_TOP)/device/intel/support/testkeys/shim/shim
 BIOS_KEY_PREFIX ?= $(ANDROID_BUILD_TOP)/device/intel/support/testkeys/bios/DB
 
 all: $(TARGET)
 
+ifeq ($(USE_SHIM_KEY),true)
+SHIM_KEY_PREFIX ?= $(ANDROID_BUILD_TOP)/device/intel/support/testkeys/shim/shim
+MOKMANAGER_KEY_PREFIX := $(SHIM_KEY_PREFIX)
 shim.cer: $(SHIM_KEY_PREFIX).crt
 	openssl x509 -outform der -in $< -out $@
 
@@ -58,7 +61,15 @@ shim_cert.h: shim.cer
 	hexdump -v -e '1/1 "0x%02x, "' $< >> $@
 	echo "};" >> $@
 
-shim.o: $(SOURCES) shim_cert.h
+SHIM_DEPS := $(SOURCES) shim_cert.h
+CFLAGS += -DUSE_SHIM_KEY
+else
+MOKMANAGER_KEY_PREFIX := $(BIOS_KEY_PREFIX)
+SHIM_DEPS := $(SOURCES)
+# todo add MokManager hash to the shim
+endif
+
+shim.o: $(SHIM_DEPS)
 
 cert.o : cert.S
 	$(CC) $(CFLAGS) -c -o $@ $<
@@ -99,9 +110,9 @@ shim.efi: shim.unsigned.efi $(BIOS_KEY_PREFIX).crt $(BIOS_KEY_PREFIX).key
 		--cert $(BIOS_KEY_PREFIX).crt \
 		--output $@ $<
 
-MokManager.efi: MokManager.unsigned.efi $(SHIM_KEY_PREFIX).crt $(SHIM_KEY_PREFIX).key
-	sbsign --key $(SHIM_KEY_PREFIX).key \
-		--cert $(SHIM_KEY_PREFIX).crt \
+MokManager.efi: MokManager.unsigned.efi $(MOKMANAGER_KEY_PREFIX).crt $(MOKMANAGER_KEY_PREFIX).key
+	sbsign --key $(MOKMANAGER_KEY_PREFIX).key \
+		--cert $(MOKMANAGER_KEY_PREFIX).crt \
 		--output $@ $<
 
 clean:

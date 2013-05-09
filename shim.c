@@ -45,8 +45,12 @@
 #include "shim.h"
 #include "signature.h"
 #include "netboot.h"
-#include "shim_cert.h"
+
 #include "ucs2.h"
+
+#ifdef USE_SHIM_KEY
+#include "shim_cert.h"
+#endif
 
 #define pr_error(fmt, ...) do { \
 	Print(fmt, ##__VA_ARGS__); \
@@ -896,14 +900,14 @@ static EFI_STATUS verify_generic_blob (VOID *data, UINTN datasize,
 		pr_debug(L"Binary is whitelisted");
 		return EFI_SUCCESS;
 	}
-
+#ifdef USE_SHIM_KEY
 	pr_debug(L"Try verifying with shim certificate\n");
 	if (openssl_verify(sig, sigsize, shim_cert, sizeof(shim_cert),
 				digest, SHA256_DIGEST_LENGTH)) {
 		pr_debug(L"Blob is verified by the shim certificate\n");
 		return EFI_SUCCESS;
 	}
-
+#endif
 	pr_debug(L"Try verifying with vendor certificate\n");
 	if (openssl_verify(sig, sigsize, vendor_cert, vendor_cert_size,
 				digest, SHA256_DIGEST_LENGTH)) {
@@ -980,6 +984,7 @@ static EFI_STATUS verify_buffer (char *data, int datasize,
 		return status;
 	}
 
+#ifdef USE_SHIM_KEY
 	/*
 	 * Check against the shim build key
 	 */
@@ -991,7 +996,7 @@ static EFI_STATUS verify_buffer (char *data, int datasize,
 		pr_debug(L"Binary is verified by the shim certificate\n");
 		return status;
 	}
-
+#endif
 
 	/*
 	 * And finally, check against shim's built-in key
