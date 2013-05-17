@@ -28,13 +28,17 @@ LOCAL_MODULE_STEM := $(LOCAL_MODULE)
 LOCAL_SRC_FILES := ../../prebuilts/tools/linux-$(arch_name)/uefi_shim/shim.efi
 LOCAL_CERTIFICATE := SBSIGN
 LOCAL_SBSIGN_CERTIFICATE := uefi_bios_db_key
+ifeq ($(USE_SHIM_KEY),true)
 LOCAL_SBSIGN_BINARY_REPLACE_CERTIFICATE := device/intel/support/testkeys/shim/shim.crt:uefi_shim_key
+endif
 include $(BUILD_PREBUILT)
 
 UEFI_SHIM_EFI := $(PRODUCT_OUT)/efi/shim.efi
 
+ifeq ($(USE_SHIM_KEY),true)
 # This will be packaged into the target file
 # so that the certificate in the shim can be
 # replace later.
 TARGET_FILES_PACKAGE_DISCARD_FILES += \
 	device/intel/support/testkeys/shim/shim.crt
+endif
