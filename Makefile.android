@@ -46,12 +46,12 @@ SOURCES	= shim.c shim.h netboot.c signature.h PeImage.h
 MOK_OBJS = MokManager.o
 MOK_SOURCES = MokManager.c shim.h
 
-BIOS_KEY_PREFIX ?= $(ANDROID_BUILD_TOP)/device/intel/support/testkeys/bios/DB
+BIOS_KEY_PREFIX ?= $(ANDROID_BUILD_TOP)/device/intel/common/testkeys/bios/DB
 
 all: $(TARGET)
 
 ifeq ($(USE_SHIM_KEY),true)
-SHIM_KEY_PREFIX ?= $(ANDROID_BUILD_TOP)/device/intel/support/testkeys/shim/shim
+SHIM_KEY_PREFIX ?= $(ANDROID_BUILD_TOP)/device/intel/common/testkeys/shim/shim
 MOKMANAGER_KEY_PREFIX := $(SHIM_KEY_PREFIX)
 shim.cer: $(SHIM_KEY_PREFIX).crt
 	openssl x509 -outform der -in $< -out $@
