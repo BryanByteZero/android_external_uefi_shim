@@ -41,19 +41,19 @@ TARGET	= shim.efi MokManager.efi \
           shim.debug.efi MokManager.debug.efi
 
 OBJS	= shim.o netboot.o cert.o dbx.o
-KEYS	= shim_cert.h shim.cer
+KEYS	= shim_cert.h shim.cer bios.key mokmanager.key
 SOURCES	= shim.c shim.h netboot.c signature.h PeImage.h
 MOK_OBJS = MokManager.o
 MOK_SOURCES = MokManager.c shim.h
 
-BIOS_KEY_PREFIX ?= $(ANDROID_BUILD_TOP)/device/intel/common/testkeys/bios/DB
+DB_KEY_PAIR ?= $(ANDROID_BUILD_TOP)/build/target/product/security/testkey
 
 all: $(TARGET)
 
 ifeq ($(USE_SHIM_KEY),true)
-SHIM_KEY_PREFIX ?= $(ANDROID_BUILD_TOP)/device/intel/common/testkeys/shim/shim
-MOKMANAGER_KEY_PREFIX := $(SHIM_KEY_PREFIX)
-shim.cer: $(SHIM_KEY_PREFIX).crt
+SHIM_KEY_PAIR ?= $(ANDROID_BUILD_TOP)/device/intel/common/testkeys/shim
+MOKMANAGER_KEY_PAIR := $(SHIM_KEY_PAIR)
+shim.cer: $(SHIM_KEY_PAIR).x509.pem
 	openssl x509 -outform der -in $< -out $@
 
 shim_cert.h: shim.cer
@@ -64,7 +64,7 @@ shim_cert.h: shim.cer
 SHIM_DEPS := $(SOURCES) shim_cert.h
 CFLAGS += -DUSE_SHIM_KEY
 else
-MOKMANAGER_KEY_PREFIX := $(BIOS_KEY_PREFIX)
+MOKMANAGER_KEY_PAIR := $(DB_KEY_PAIR)
 SHIM_DEPS := $(SOURCES)
 # todo add MokManager hash to the shim
 endif
@@ -79,6 +79,12 @@ dbx.o : dbx.S
 
 shim.so: $(OBJS) Cryptlib/libcryptlib.a Cryptlib/OpenSSL/libopenssl.a
 	$(LD) -o $@ $(LDFLAGS) $^ $(EFI_LIBS)
+
+bios.key: $(DB_KEY_PAIR).pk8
+	openssl pkcs8 -nocrypt -inform DER -outform PEM -in $^ -out $@
+
+mokmanager.key: $(MOKMANAGER_KEY_PAIR).pk8
+	openssl pkcs8 -nocrypt -inform DER -outform PEM -in $^ -out $@
 
 MokManager.o: $(SOURCES)
 
@@ -105,14 +111,14 @@ Cryptlib/OpenSSL/libopenssl.a:
 		-j .debug_line -j .debug_str -j .debug_ranges \
 		--target=efi-app-$(ARCH) $^ $@
 
-shim.efi: shim.unsigned.efi $(BIOS_KEY_PREFIX).crt $(BIOS_KEY_PREFIX).key
-	sbsign --key $(BIOS_KEY_PREFIX).key \
-		--cert $(BIOS_KEY_PREFIX).crt \
+shim.efi: shim.unsigned.efi $(DB_KEY_PAIR).x509.pem bios.key
+	sbsign --key bios.key \
+		--cert $(DB_KEY_PAIR).x509.pem \
 		--output $@ $<
 
-MokManager.efi: MokManager.unsigned.efi $(MOKMANAGER_KEY_PREFIX).crt $(MOKMANAGER_KEY_PREFIX).key
-	sbsign --key $(MOKMANAGER_KEY_PREFIX).key \
-		--cert $(MOKMANAGER_KEY_PREFIX).crt \
+MokManager.efi: MokManager.unsigned.efi $(MOKMANAGER_KEY_PAIR).x509.pem mokmanager.key
+	sbsign --key mokmanager.key \
+		--cert $(MOKMANAGER_KEY_PAIR).x509.pem \
 		--output $@ $<
 
 clean:
