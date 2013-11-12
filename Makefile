@@ -42,7 +42,7 @@ LDFLAGS		= -nostdlib -znocombreloc -T $(EFI_LDS) -shared -Bsymbolic -L$(EFI_PATH
 
 VERSION		= 0.7
 
-TARGET	= shim.efi MokManager.efi.signed fallback.efi.signed
+TARGET	= shim.efi MokManager.efi fallback.efi
 OBJS	= shim.o netboot.o cert.o replacements.o version.o
 KEYS	= shim_cert.h ocsp.* ca.* shim.crt shim.csr shim.p12 shim.pem shim.key shim.cer
 SOURCES	= shim.c shim.h netboot.c include/PeImage.h include/wincert.h include/console.h replacements.c replacements.h version.c version.h
@@ -103,7 +103,7 @@ Cryptlib/OpenSSL/libopenssl.a:
 lib/lib.a:
 	$(MAKE) -C lib EFI_PATH=$(EFI_PATH) EFI_INCLUDE=$(EFI_INCLUDE) ARCH=$(ARCH)
 
-%.efi: %.so
+%.unsigned.efi: %.so
 	objcopy -j .text -j .sdata -j .data \
 		-j .dynamic -j .dynsym  -j .rel \
 		-j .rela -j .reloc -j .eh_frame \
@@ -116,8 +116,14 @@ lib/lib.a:
 		-j .debug_line -j .debug_str -j .debug_ranges \
 		--target=efi-app-$(ARCH) $^ $@.debug
 
-%.efi.signed: %.efi certdb/secmod.db
-	pesign -n certdb -i $< -c "shim" -s -o $@ -f
+DB_KEY_PAIR ?= $(ANDROID_BUILD_TOP)/build/target/product/security/testkey
+bios.key: $(DB_KEY_PAIR).pk8
+	openssl pkcs8 -nocrypt -inform DER -outform PEM -in $^ -out $@
+
+%.efi: %.unsigned.efi $(DB_KEY_PAIR).x509.pem bios.key
+	sbsign --key bios.key \
+		--cert $(DB_KEY_PAIR).x509.pem \
+		--output $@ $<
 
 clean:
 	$(MAKE) -C Cryptlib clean

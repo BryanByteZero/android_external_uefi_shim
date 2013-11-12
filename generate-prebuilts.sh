@@ -27,7 +27,7 @@ fi
 
 copy_to_prebuilts()
 {
-    PREBUILT_FILES="MokManager.efi.signed shim.efi"
+    PREBUILT_FILES="MokManager.efi shim.efi"
 
     # Sanity check
     have_prebuilt_files=1
