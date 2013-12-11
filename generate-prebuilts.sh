@@ -17,14 +17,17 @@
 #    Android uses x86, but EFI uses ia32.
 #
 
+set -e
 PREBUILT_TOP=$ANDROID_BUILD_TOP/prebuilts/tools
+
+if [ -z "$ANDROID_BUILD_TOP" ]; then
+    echo "[ERROR] \$ANDROID_BUILD_TOP not set, please run lunch"
+    exit 2
+fi
 
 copy_to_prebuilts()
 {
-    PREBUILT_FILES=" \
-        MokManager.efi MokManager.unsigned.efi MokManager.debug.efi \
-        shim.efi shim.unsigned.efi shim.debug.efi \
-        "
+    PREBUILT_FILES="MokManager.efi shim.efi"
 
     # Sanity check
     have_prebuilt_files=1
@@ -80,20 +83,35 @@ fi
 mkdir -p $PREBUILT_TOP/linux-x86/uefi_shim
 mkdir -p $PREBUILT_TOP/linux-x86_64/uefi_shim
 
-MAKE_CMD="make -f Makefile.android"
+# Upstream Makefile heavily biased towards Fedora, we need to override
+# a bunch of Make variables
+EFI_PATH_64=$ANDROID_BUILD_TOP/prebuilts/tools/linux-x86_64/gnu-efi
+EFI_PATH_32=$ANDROID_BUILD_TOP/prebuilts/tools/linux-x86/gnu-efi
+LIB_PATH_64=$EFI_PATH_64/lib
+LIB_PATH_32=$EFI_PATH_32/lib
+EFI_INCLUDE_64=$EFI_PATH_64/include/efi
+EFI_INCLUDE_32=$EFI_PATH_32/include/efi
+EFI_CRT_OBJS_64=$LIB_PATH_64/crt0-efi-x86_64.o
+EFI_CRT_OBJS_32=$LIB_PATH_32/crt0-efi-ia32.o
+EFI_LDS_64=$LIB_PATH_64/elf_x86_64_efi.lds
+EFI_LDS_32=$LIB_PATH_32/elf_ia32_efi.lds
+
+MAKE_CMD="make -j12 DEFAULT_LOADER=\\\\\\\\gummiboot.efi"
 
 $MAKE_CMD ARCH=x86_64 clean
 $MAKE_CMD ARCH=ia32 clean
 
 # Generate prebuilts for x86_64
-$MAKE_CMD -j10 ARCH=x86_64 \
-    CC=$ANDROID_BUILD_TOP/prebuilts/gcc/linux-x86/host/x86_64-linux-glibc2.7-4.6/bin/x86_64-linux-gcc
+$MAKE_CMD ARCH=x86_64 EFI_PATH=$EFI_PATH_64 LIB_PATH=$LIB_PATH_64 \
+          EFI_INCLUDE=$EFI_INCLUDE_64 EFI_CRT_OBJS=$EFI_CRT_OBJS_64 \
+          EFI_LDS=$EFI_LDS_64
 copy_to_prebuilts x86_64
 $MAKE_CMD ARCH=x86_64 clean
 
 # Generate prebuilts for ia32
-$MAKE_CMD -j10 ARCH=ia32 \
-    CC=$ANDROID_BUILD_TOP//prebuilts/gcc/linux-x86/host/i686-linux-glibc2.7-4.6/bin/i686-linux-gcc
+$MAKE_CMD ARCH=ia32 EFI_PATH=$EFI_PATH_32 LIB_PATH=$LIB_PATH_32 \
+          EFI_INCLUDE=$EFI_INCLUDE_32 EFI_CRT_OBJS=$EFI_CRT_OBJS_32 \
+          EFI_LDS=$EFI_LDS_32
 copy_to_prebuilts x86
 $MAKE_CMD ARCH=ia32 clean
 
@@ -109,3 +127,5 @@ if [ "$add_prebuilts" == "1" ]; then
 
     echo "[NOTICE] Please remember to commit the prebuilts under $PREBUILT_TOP"
 fi
+
+echo "All done!"

@@ -38,7 +38,7 @@
 #include <string.h>
 #include "shim.h"
 #include "netboot.h"
-
+#include "str.h"
 
 static inline unsigned short int __swap16(unsigned short int x)
 {
@@ -53,23 +53,32 @@ static inline unsigned short int __swap16(unsigned short int x)
 
 static EFI_PXE_BASE_CODE *pxe;
 static EFI_IP_ADDRESS tftp_addr;
-static char *full_path;
+static CHAR8 *full_path;
 
-
-/*
- * Not in the EFI header set yet, so I have to declare it here
- */
-typedef struct {
-	UINT32 MessageType:8;
-	UINT32 TransactionId:24;
-	UINT8 DhcpOptions[1024];
-} EFI_PXE_BASE_CODE_DHCPV6_PACKET;
 
 typedef struct {
 	UINT16 OpCode;
 	UINT16 Length;
 	UINT8 Data[1];
 } EFI_DHCP6_PACKET_OPTION;
+
+static CHAR8 *
+translate_slashes(char *str)
+{
+	int i;
+	int j;
+	if (str == NULL)
+		return (CHAR8 *)str;
+
+	for (i = 0, j = 0; str[i] != '\0'; i++, j++) {
+		if (str[i] == '\\') {
+			str[j] = '/';
+			if (str[i+1] == '\\')
+				i++;
+		}
+	}
+	return (CHAR8 *)str;
+}
 
 /*
  * usingNetboot
@@ -120,7 +129,7 @@ try_again:
 	for (i=0; i < (bs / sizeof(EFI_HANDLE)); i++) {
 		status = uefi_call_wrapper(BS->OpenProtocol, 6, hbuf[i],
 					   &pxe_base_code_protocol,
-					   &pxe, image_handle, NULL,
+					   (void **)&pxe, image_handle, NULL,
 					   EFI_OPEN_PROTOCOL_GET_PROTOCOL);
 
 		if (status != EFI_SUCCESS) {
@@ -150,11 +159,11 @@ try_again:
 	return rc;
 }
 
-static char *get_v6_bootfile_url(EFI_PXE_BASE_CODE_DHCPV6_PACKET *pkt)
+static CHAR8 *get_v6_bootfile_url(EFI_PXE_BASE_CODE_DHCPV6_PACKET *pkt)
 {
 	void *optr;
 	EFI_DHCP6_PACKET_OPTION *option;
-	char *url;
+	CHAR8 *url;
 	UINT32 urllen;
 
 	optr = pkt->DhcpOptions;
@@ -168,10 +177,9 @@ static char *get_v6_bootfile_url(EFI_PXE_BASE_CODE_DHCPV6_PACKET *pkt)
 		if (ntohs(option->OpCode) == 59) {
 			/* This is the bootfile url option */
 			urllen = ntohs(option->Length);
-			url = AllocatePool(urllen+2);
+			url = AllocateZeroPool(urllen+1);
 			if (!url)
 				return NULL;
-			memset(url, 0, urllen+2);
 			memcpy(url, option->Data, urllen);
 			return url;
 		}
@@ -181,10 +189,10 @@ static char *get_v6_bootfile_url(EFI_PXE_BASE_CODE_DHCPV6_PACKET *pkt)
 	return NULL;
 }
 
-static UINT16 str2ns(UINT8 *str)
+static CHAR16 str2ns(CHAR8 *str)
 {
-        UINT16 ret = 0;
-        UINT8 v;
+        CHAR16 ret = 0;
+        CHAR8 v;
         for(;*str;str++) {
                 if ('0' <= *str && *str <= '9')
                         v = *str - '0';
@@ -199,18 +207,18 @@ static UINT16 str2ns(UINT8 *str)
         return htons(ret);
 }
 
-static UINT8 *str2ip6(char *str)
+static CHAR8 *str2ip6(CHAR8 *str)
 {
         UINT8 i, j, p;
 	size_t len;
-        UINT8 *a, *b, t;
+        CHAR8 *a, *b, t;
         static UINT16 ip[8];
 
         for(i=0; i < 8; i++) {
                 ip[i] = 0;
         }
-        len = strlen((UINT8 *)str);
-        a = b = (UINT8 *)str;
+        len = strlen(str);
+        a = b = str;
         for(i=p=0; i < len; i++, b++) {
                 if (*b != ':')
                         continue;
@@ -221,7 +229,7 @@ static UINT8 *str2ip6(char *str)
                 if ( *(b+1) == ':' )
                         break;
         }
-        a = b = (UINT8 *)(str + len);
+        a = b = (str + len);
         for(j=len, p=7; j > i; j--, a--) {
                 if (*a != ':')
                         continue;
@@ -231,14 +239,14 @@ static UINT8 *str2ip6(char *str)
                 *b = t;
                 b = a;
         }
-        return (UINT8 *)ip;
+        return (CHAR8 *)ip;
 }
 
-static BOOLEAN extract_tftp_info(char *url)
+static BOOLEAN extract_tftp_info(CHAR8 *url)
 {
-	char *start, *end;
-	char ip6str[128];
-	char *template = "/grubx64.efi";
+	CHAR8 *start, *end;
+	CHAR8 ip6str[40];
+	CHAR8 *template = (CHAR8 *)translate_slashes(DEFAULT_LOADER_CHAR);
 
 	if (strncmp((UINT8 *)url, (UINT8 *)"tftp://", 7)) {
 		Print(L"URLS MUST START WITH tftp://\n");
@@ -254,26 +262,28 @@ static BOOLEAN extract_tftp_info(char *url)
 	end = start;
 	while ((*end != '\0') && (*end != ']')) {
 		end++;
+		if (end - start > 39) {
+			Print(L"TFTP URL includes malformed IPv6 address\n");
+			return FALSE;
+		}
 	}
 	if (end == '\0') {
 		Print(L"TFTP SERVER MUST BE ENCLOSED IN [..]\n");
 		return FALSE;
 	}
-	*end = '\0';
-	memset(ip6str, 0, 128);
-	memcpy(ip6str, start, strlen((UINT8 *)start));
-	*end = ']';
+	memset(ip6str, 0, 40);
+	memcpy(ip6str, start, end - start);
 	end++;
 	memcpy(&tftp_addr.v6, str2ip6(ip6str), 16);
-	full_path = AllocatePool(strlen((UINT8 *)end)+strlen((UINT8 *)template)+1);
+	full_path = AllocateZeroPool(strlen(end)+strlen(template)+1);
 	if (!full_path)
 		return FALSE;
-	memset(full_path, 0, strlen((UINT8 *)end)+strlen((UINT8 *)template));
-	memcpy(full_path, end, strlen((UINT8 *)end));
-	end = strrchr(full_path, '/');
+	memcpy(full_path, end, strlen(end));
+	end = (CHAR8 *)strrchr((char *)full_path, '/');
 	if (!end)
-		end = full_path;
-	memcpy(end, template, strlen((UINT8 *)template));
+		end = (CHAR8 *)full_path;
+	memcpy(end, template, strlen(template));
+	end[strlen(template)] = '\0';
 
 	return TRUE;
 }
@@ -281,36 +291,49 @@ static BOOLEAN extract_tftp_info(char *url)
 static EFI_STATUS parseDhcp6()
 {
 	EFI_PXE_BASE_CODE_DHCPV6_PACKET *packet = (EFI_PXE_BASE_CODE_DHCPV6_PACKET *)&pxe->Mode->DhcpAck.Raw;
-	char *bootfile_url;
-
+	CHAR8 *bootfile_url;
 
 	bootfile_url = get_v6_bootfile_url(packet);
-	if (extract_tftp_info(bootfile_url) == FALSE)
-		return EFI_NOT_FOUND;
 	if (!bootfile_url)
 		return EFI_NOT_FOUND;
+	if (extract_tftp_info(bootfile_url) == FALSE) {
+		FreePool(bootfile_url);
+		return EFI_NOT_FOUND;
+	}
+	FreePool(bootfile_url);
 	return EFI_SUCCESS;
 }
 
 static EFI_STATUS parseDhcp4()
 {
-	char *template = "/grubx64.efi";
-	char *tmp = AllocatePool(16);
+	CHAR8 *template = (CHAR8 *)translate_slashes(DEFAULT_LOADER_CHAR);
+	INTN template_len = strlen(template) + 1;
 
+	INTN dir_len = strnlena(pxe->Mode->DhcpAck.Dhcpv4.BootpBootFile, 127);
+	INTN i;
+	UINT8 *dir = pxe->Mode->DhcpAck.Dhcpv4.BootpBootFile;
 
-	if (!tmp)
+	for (i = dir_len; i >= 0; i--) {
+		if (dir[i] == '/')
+			break;
+	}
+	dir_len = (i >= 0) ? i + 1 : 0;
+
+	full_path = AllocateZeroPool(dir_len + template_len);
+
+	if (!full_path)
 		return EFI_OUT_OF_RESOURCES;
 
-
+	if (dir_len > 0) {
+		strncpya(full_path, dir, dir_len);
+		if (full_path[dir_len-1] == '/' && template[0] == '/')
+			full_path[dir_len-1] = '\0';
+	}
+	if (dir_len == 0 && dir[0] != '/' && template[0] == '/')
+		template++;
+	strcata(full_path, template);
 	memcpy(&tftp_addr.v4, pxe->Mode->DhcpAck.Dhcpv4.BootpSiAddr, 4);
 
-	memcpy(tmp, template, 12);
-	tmp[13] = '\0';
-	full_path = tmp;
-
-	/* Note we don't capture the filename option here because we know its shim.efi
-	 * We instead assume the filename at the end of the path is going to be grubx64.efi
-	 */
 	return EFI_SUCCESS;
 }
 
@@ -335,7 +358,7 @@ EFI_STATUS parseNetbootinfo(EFI_HANDLE image_handle)
 	return rc;
 }
 
-EFI_STATUS FetchNetbootimage(EFI_HANDLE image_handle, VOID **buffer, UINTN *bufsiz)
+EFI_STATUS FetchNetbootimage(EFI_HANDLE image_handle, VOID **buffer, UINT64 *bufsiz)
 {
 	EFI_STATUS rc;
 	EFI_PXE_BASE_CODE_TFTP_OPCODE read = EFI_PXE_BASE_CODE_TFTP_READ_FILE;
@@ -353,7 +376,7 @@ EFI_STATUS FetchNetbootimage(EFI_HANDLE image_handle, VOID **buffer, UINTN *bufs
 
 try_again:
 	rc = uefi_call_wrapper(pxe->Mtftp, 10, pxe, read, *buffer, overwrite,
-				&bufsiz, &blksz, &tftp_addr, full_path, NULL, nobuffer);
+				bufsiz, &blksz, &tftp_addr, full_path, NULL, nobuffer);
 
 	if (rc == EFI_BUFFER_TOO_SMALL) {
 		/* try again, doubling buf size */
@@ -365,6 +388,8 @@ try_again:
 		goto try_again;
 	}
 
+	if (rc != EFI_SUCCESS && *buffer) {
+		FreePool(*buffer);
+	}
 	return rc;
-
 }
