@@ -116,7 +116,7 @@ lib/lib.a:
 		-j .debug_line -j .debug_str -j .debug_ranges \
 		--target=efi-app-$(ARCH) $^ $@.debug
 
-DB_KEY_PAIR ?= $(ANDROID_BUILD_TOP)/build/target/product/security/testkey
+DB_KEY_PAIR ?= $(ANDROID_BUILD_TOP)/device/intel/common/testkeys/DB
 bios.key: $(DB_KEY_PAIR).pk8
 	openssl pkcs8 -nocrypt -inform DER -outform PEM -in $^ -out $@
 
