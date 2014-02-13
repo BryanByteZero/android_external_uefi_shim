@@ -7,7 +7,7 @@ EFI_PATH	= /usr/lib64/gnuefi
 LIB_GCC		= $(shell $(CC) -print-libgcc-file-name)
 EFI_LIBS	= -lefi -lgnuefi $(LIB_GCC)
 
-CFLAGS		= -ggdb -O0 -I. -fno-stack-protector -fno-strict-aliasing -fpic -fshort-wchar \
+CFLAGS		= -ggdb -O3 -I. -fno-stack-protector -fno-strict-aliasing -fpic -fshort-wchar \
 		  -Wall $(EFI_INCLUDES) -mno-red-zone -maccumulate-outgoing-args -mno-sse -mno-mmx
 ifeq ($(ARCH),x86_64)
 	CFLAGS	+= -DEFI_FUNCTION_WRAPPER -DGNU_EFI_USE_MS_ABI

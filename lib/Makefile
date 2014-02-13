@@ -10,7 +10,7 @@ EFI_INCLUDES    = -I$(EFI_INCLUDE) -I$(EFI_INCLUDE)/$(ARCH) -I$(EFI_INCLUDE)/pro
 EFI_CRT_OBJS    = $(EFI_PATH)/crt0-efi-$(ARCH).o
 EFI_LDS         = $(EFI_PATH)/elf_$(ARCH)_efi.lds
 
-CFLAGS          = -ggdb -O0 -fno-stack-protector -fno-strict-aliasing -fpic \
+CFLAGS          = -ggdb -O3 -fno-stack-protector -fno-strict-aliasing -fpic \
 		  -fshort-wchar -Wall -mno-red-zone -DBUILD_EFI -fno-builtin \
 		  -Werror \
 		  $(EFI_INCLUDES)
