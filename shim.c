@@ -1555,8 +1555,6 @@ EFI_STATUS start_image(EFI_HANDLE image_handle, CHAR16 *ImagePath)
 	EFI_LOADED_IMAGE *li, li_bak;
 	EFI_DEVICE_PATH *path;
 	CHAR16 *PathName = NULL;
-	void *sourcebuffer = NULL;
-	UINT64 sourcesize = 0;
 	void *data = NULL;
 	int datasize;
 
@@ -1582,31 +1580,15 @@ EFI_STATUS start_image(EFI_HANDLE image_handle, CHAR16 *ImagePath)
 		goto done;
 	}
 
-	if (findNetboot(image_handle)) {
-		efi_status = parseNetbootinfo(image_handle);
-		if (efi_status != EFI_SUCCESS) {
-			Print(L"Netboot parsing failed: %r\n", efi_status);
-			return EFI_PROTOCOL_ERROR;
-		}
-		efi_status = FetchNetbootimage(image_handle, &sourcebuffer,
-					       &sourcesize);
-		if (efi_status != EFI_SUCCESS) {
-			Print(L"Unable to fetch TFTP image: %r\n", efi_status);
-			return efi_status;
-		}
-		data = sourcebuffer;
-		datasize = sourcesize;
-	} else {
-		/*
-		 * Read the new executable off disk
-		 */
-		efi_status = load_image(li, &data, &datasize, PathName, ImagePath);
+        /*
+	 * Read the new executable off disk
+	 */
+	efi_status = load_image(li, &data, &datasize, PathName, ImagePath);
 
-		if (efi_status != EFI_SUCCESS) {
-			Print(L"Failed to load image %s: %r\n", PathName, efi_status);
-			goto done;
-		}
-	}
+	if (efi_status != EFI_SUCCESS) {
+		Print(L"Failed to load image %s: %r\n", PathName, efi_status);
+		goto done;
+        }
 
 	/*
 	 * We need to modify the loaded image protocol entry before running
