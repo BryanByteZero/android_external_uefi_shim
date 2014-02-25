@@ -1,6 +1,6 @@
 LOCAL_PATH := $(call my-dir)
 
-ifeq ($(TARGET_KERNEL_ARCH),i386)
+ifeq ($(TARGET_UEFI_ARCH),i386)
 arch_name := x86
 else
 arch_name := x86_64
