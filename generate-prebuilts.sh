@@ -26,9 +26,13 @@ if [ -z "$ANDROID_BUILD_TOP" ]; then
 fi
 
 DB_KEY_PAIR=$ANDROID_BUILD_TOP/device/intel/build/testkeys/DB
+VENDOR_KEY_PAIR=$ANDROID_BUILD_TOP/device/intel/build/testkeys/vendor
 
 rm -f db.key
 openssl pkcs8 -nocrypt -inform DER -outform PEM -in ${DB_KEY_PAIR}.pk8 -out db.key
+
+rm -f vendor.cer
+openssl x509 -outform der -in ${VENDOR_KEY_PAIR}.x509.pem -out vendor.cer
 
 copy_to_prebuilts()
 {
@@ -114,14 +118,14 @@ $MAKE_CMD ARCH=ia32 clean
 # Generate prebuilts for x86_64
 $MAKE_CMD ARCH=x86_64 EFI_PATH=$EFI_PATH_64 LIB_PATH=$LIB_PATH_64 \
           EFI_INCLUDE=$EFI_INCLUDE_64 EFI_CRT_OBJS=$EFI_CRT_OBJS_64 \
-          EFI_LDS=$EFI_LDS_64
+          EFI_LDS=$EFI_LDS_64 VENDOR_CERT_FILE=vendor.cer
 copy_to_prebuilts x86_64
 $MAKE_CMD ARCH=x86_64 clean
 
 # Generate prebuilts for ia32
 $MAKE_CMD ARCH=ia32 EFI_PATH=$EFI_PATH_32 LIB_PATH=$LIB_PATH_32 \
           EFI_INCLUDE=$EFI_INCLUDE_32 EFI_CRT_OBJS=$EFI_CRT_OBJS_32 \
-          EFI_LDS=$EFI_LDS_32
+          EFI_LDS=$EFI_LDS_32 VENDOR_CERT_FILE=vendor.cer
 copy_to_prebuilts x86
 $MAKE_CMD ARCH=ia32 clean
 
