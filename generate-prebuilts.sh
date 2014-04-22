@@ -18,16 +18,25 @@
 #
 
 set -e
-PREBUILT_TOP=$ANDROID_BUILD_TOP/prebuilts/tools
+PREBUILT_TOP=$ANDROID_BUILD_TOP/hardware/intel/efi_prebuilts/
 
 if [ -z "$ANDROID_BUILD_TOP" ]; then
     echo "[ERROR] \$ANDROID_BUILD_TOP not set, please run lunch"
     exit 2
 fi
 
+DB_KEY_PAIR=$ANDROID_BUILD_TOP/device/intel/build/testkeys/DB
+VENDOR_KEY_PAIR=$ANDROID_BUILD_TOP/device/intel/build/testkeys/vendor
+
+rm -f db.key
+openssl pkcs8 -nocrypt -inform DER -outform PEM -in ${DB_KEY_PAIR}.pk8 -out db.key
+
+rm -f vendor.cer
+openssl x509 -outform der -in ${VENDOR_KEY_PAIR}.x509.pem -out vendor.cer
+
 copy_to_prebuilts()
 {
-    PREBUILT_FILES="MokManager.efi shim.efi"
+    PREBUILT_FILES="MokManager.efi.signed shim.efi"
 
     # Sanity check
     have_prebuilt_files=1
@@ -43,9 +52,13 @@ copy_to_prebuilts()
     fi
 
     # All files present. Copy them into prebuilts/
-    for F in $PREBUILT_FILES; do
-        cp -v $F $PREBUILT_TOP/linux-$1/uefi_shim/
-    done
+    mkdir -p $PREBUILT_TOP/uefi_shim/linux-$1/
+    cp -v MokManager.efi.signed $PREBUILT_TOP/uefi_shim/linux-$1/MokManager.efi
+
+    sbsign --key db.key --cert ${DB_KEY_PAIR}.x509.pem \
+	    --output shim.efi.signed shim.efi
+
+    cp -v shim.efi.signed $PREBUILT_TOP/uefi_shim/linux-$1/shim.efi
 }
 
 add_prebuilts=0
@@ -57,19 +70,20 @@ done
 
 # Check gnu-efi prebuilts are in place
 NEEDED_FILES=" \
-    linux-x86_64/gnu-efi/lib/crt0-efi-x86_64.o \
-    linux-x86_64/gnu-efi/lib/libefi.a
-    linux-x86_64/gnu-efi/lib/libgnuefi.a \
-    linux-x86_64/gnu-efi/lib/elf_x86_64_efi.lds \
-    linux-x86/gnu-efi/lib/crt0-efi-ia32.o \
-    linux-x86/gnu-efi/lib/libefi.a
-    linux-x86/gnu-efi/lib/libgnuefi.a \
-    linux-x86/gnu-efi/lib/elf_ia32_efi.lds \
+    gnu-efi/linux-x86_64/lib/crt0-efi-x86_64.o \
+    gnu-efi/linux-x86_64/lib/libefi.a
+    gnu-efi/linux-x86_64/lib/libgnuefi.a \
+    gnu-efi/linux-x86_64/lib/elf_x86_64_efi.lds \
+    gnu-efi/linux-x86/lib/crt0-efi-ia32.o \
+    gnu-efi/linux-x86/lib/libefi.a
+    gnu-efi/linux-x86/lib/libgnuefi.a \
+    gnu-efi/linux-x86/lib/elf_ia32_efi.lds \
     "
+
 have_all_files=1
 for file in $NEEDED_FILES; do
     if [ ! -s "$PREBUILT_TOP/$file" ]; then
-        echo "[ERROR] --- $file does not exists in external/gnu-efi/prebuilts/."
+        echo "[ERROR] --- $file does not exists in $PREBUILT_TOP."
         have_all_files=0
     fi
 done
@@ -85,8 +99,8 @@ mkdir -p $PREBUILT_TOP/linux-x86_64/uefi_shim
 
 # Upstream Makefile heavily biased towards Fedora, we need to override
 # a bunch of Make variables
-EFI_PATH_64=$ANDROID_BUILD_TOP/prebuilts/tools/linux-x86_64/gnu-efi
-EFI_PATH_32=$ANDROID_BUILD_TOP/prebuilts/tools/linux-x86/gnu-efi
+EFI_PATH_64=$PREBUILT_TOP/gnu-efi/linux-x86_64
+EFI_PATH_32=$PREBUILT_TOP/gnu-efi/linux-x86
 LIB_PATH_64=$EFI_PATH_64/lib
 LIB_PATH_32=$EFI_PATH_32/lib
 EFI_INCLUDE_64=$EFI_PATH_64/include/efi
@@ -104,14 +118,14 @@ $MAKE_CMD ARCH=ia32 clean
 # Generate prebuilts for x86_64
 $MAKE_CMD ARCH=x86_64 EFI_PATH=$EFI_PATH_64 LIB_PATH=$LIB_PATH_64 \
           EFI_INCLUDE=$EFI_INCLUDE_64 EFI_CRT_OBJS=$EFI_CRT_OBJS_64 \
-          EFI_LDS=$EFI_LDS_64
+          EFI_LDS=$EFI_LDS_64 VENDOR_CERT_FILE=vendor.cer
 copy_to_prebuilts x86_64
 $MAKE_CMD ARCH=x86_64 clean
 
 # Generate prebuilts for ia32
 $MAKE_CMD ARCH=ia32 EFI_PATH=$EFI_PATH_32 LIB_PATH=$LIB_PATH_32 \
           EFI_INCLUDE=$EFI_INCLUDE_32 EFI_CRT_OBJS=$EFI_CRT_OBJS_32 \
-          EFI_LDS=$EFI_LDS_32
+          EFI_LDS=$EFI_LDS_32 VENDOR_CERT_FILE=vendor.cer
 copy_to_prebuilts x86
 $MAKE_CMD ARCH=ia32 clean
 
@@ -127,5 +141,6 @@ if [ "$add_prebuilts" == "1" ]; then
 
     echo "[NOTICE] Please remember to commit the prebuilts under $PREBUILT_TOP"
 fi
+
 
 echo "All done!"
