@@ -246,8 +246,10 @@ int PKCS7_verify(PKCS7 *p7, STACK_OF(X509) *certs, X509_STORE *store,
 		X509_STORE_CTX_cleanup(&cert_ctx);
 		if (i <= 0) {
 			PKCS7err(PKCS7_F_PKCS7_VERIFY,PKCS7_R_CERTIFICATE_VERIFY_ERROR);
+#if 0 /* Crashes on MRD7 due to some weirdness with va_arg... */
 			ERR_add_error_data(2, "Verify error:",
 					 X509_verify_cert_error_string(j));
+#endif
 			sk_X509_free(signers);
 			return 0;
 		}
