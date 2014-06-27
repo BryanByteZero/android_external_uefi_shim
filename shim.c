@@ -55,6 +55,8 @@
 #include "security_policy.h"
 #include "console.h"
 #include "version.h"
+#include "options.h"
+#include "android.h"
 
 #define FALLBACK L"\\fallback.efi"
 #define MOK_MANAGER L"\\MokManager.efi"
@@ -63,6 +65,8 @@ static EFI_SYSTEM_TABLE *systab;
 static EFI_STATUS (EFIAPI *entry_point) (EFI_HANDLE image_handle, EFI_SYSTEM_TABLE *system_table);
 
 static CHAR16 *second_stage;
+static VOID *second_stage_data;
+static UINTN second_stage_size;
 static void *load_options;
 static UINT32 load_options_size;
 
@@ -1545,6 +1549,53 @@ EFI_STATUS shim_verify (void *buffer, UINT32 size)
 	return status;
 }
 
+
+static EFI_STATUS start_image_mem(EFI_HANDLE image_handle, VOID *data, UINTN datasize)
+{
+	EFI_GUID loaded_image_protocol = LOADED_IMAGE_PROTOCOL;
+	EFI_STATUS efi_status;
+	EFI_LOADED_IMAGE *li, li_bak;
+
+	efi_status = uefi_call_wrapper(BS->HandleProtocol, 3, image_handle,
+				       &loaded_image_protocol, (void **)&li);
+
+	if (efi_status != EFI_SUCCESS) {
+		Print(L"Unable to init protocol\n");
+		return efi_status;
+	}
+
+	/*
+	 * We need to modify the loaded image protocol entry before running
+	 * the new binary, so back it up
+	 */
+	CopyMem(&li_bak, li, sizeof(li_bak));
+
+	/*
+	 * Verify and, if appropriate, relocate and execute the executable
+	 */
+	efi_status = handle_image(data, datasize, li);
+
+	if (efi_status != EFI_SUCCESS) {
+		Print(L"Failed to load image: %r\n", efi_status);
+		goto out;
+	}
+
+	loader_is_participating = 0;
+
+	/*
+	 * The binary is trusted and relocated. Run it
+	 */
+	efi_status = uefi_call_wrapper(entry_point, 2, image_handle, systab);
+
+out:
+	/*
+	 * Restore our original loaded image values
+	 */
+	CopyMem(li, &li_bak, sizeof(li_bak));
+	return efi_status;
+}
+
+
 /*
  * Load and run an EFI executable
  */
@@ -1552,7 +1603,7 @@ EFI_STATUS start_image(EFI_HANDLE image_handle, CHAR16 *ImagePath)
 {
 	EFI_GUID loaded_image_protocol = LOADED_IMAGE_PROTOCOL;
 	EFI_STATUS efi_status;
-	EFI_LOADED_IMAGE *li, li_bak;
+	EFI_LOADED_IMAGE *li;
 	EFI_DEVICE_PATH *path;
 	CHAR16 *PathName = NULL;
 	void *data = NULL;
@@ -1590,34 +1641,8 @@ EFI_STATUS start_image(EFI_HANDLE image_handle, CHAR16 *ImagePath)
 		goto done;
         }
 
-	/*
-	 * We need to modify the loaded image protocol entry before running
-	 * the new binary, so back it up
-	 */
-	CopyMem(&li_bak, li, sizeof(li_bak));
+	efi_status = start_image_mem(image_handle, data, datasize);
 
-	/*
-	 * Verify and, if appropriate, relocate and execute the executable
-	 */
-	efi_status = handle_image(data, datasize, li);
-
-	if (efi_status != EFI_SUCCESS) {
-		Print(L"Failed to load image: %r\n", efi_status);
-		CopyMem(li, &li_bak, sizeof(li_bak));
-		goto done;
-	}
-
-	loader_is_participating = 0;
-
-	/*
-	 * The binary is trusted and relocated. Run it
-	 */
-	efi_status = uefi_call_wrapper(entry_point, 2, image_handle, systab);
-
-	/*
-	 * Restore our original loaded image values
-	 */
-	CopyMem(li, &li_bak, sizeof(li_bak));
 done:
 	if (PathName)
 		FreePool(PathName);
@@ -1644,7 +1669,10 @@ EFI_STATUS init_grub(EFI_HANDLE image_handle)
 {
 	EFI_STATUS efi_status;
 
-	if (should_use_fallback(image_handle))
+	if (second_stage_data)
+		efi_status = start_image_mem(image_handle, second_stage_data,
+				second_stage_size);
+	else if (should_use_fallback(image_handle))
 		efi_status = start_image(image_handle, FALLBACK);
 	else
 		efi_status = start_image(image_handle, second_stage);
@@ -1869,6 +1897,7 @@ static EFI_STATUS mok_ignore_db()
 
 }
 
+
 /*
  * Check the load options to specify the second stage loader
  */
@@ -1880,6 +1909,9 @@ EFI_STATUS set_second_stage (EFI_HANDLE image_handle)
 	int i, remaining_size = 0;
 	CHAR16 *loader_str = NULL;
 	int loader_len = 0;
+	UINTN argc, pos;
+	CHAR16 **argv, *cmdline, *raw_address;
+	VOID *address;
 
 	second_stage = DEFAULT_LOADER;
 	load_options = NULL;
@@ -1899,6 +1931,12 @@ EFI_STATUS set_second_stage (EFI_HANDLE image_handle)
 	c = (CHAR16 *)(li->LoadOptions + (li->LoadOptionsSize - 2));
 	if (*c != L'\0') {
 		return EFI_BAD_BUFFER_SIZE;
+	}
+
+	status = get_argv(image_handle, &cmdline, &argc, &argv);
+	if (EFI_ERROR(status)) {
+		Print(L"Fatal error splitting command line options\n");
+		return status;
 	}
 
 	/*
@@ -1925,26 +1963,56 @@ EFI_STATUS set_second_stage (EFI_HANDLE image_handle)
 		loader_len++;
 	}
 
-	/*
-	 * Setup the name of the alternative loader and the LoadOptions for
-	 * the loader
-	 */
-	if (loader_len > 0) {
-		loader_str = AllocatePool((loader_len + 1) * sizeof(CHAR16));
-		if (!loader_str) {
-			Print(L"Failed to allocate loader string\n");
-			return EFI_OUT_OF_RESOURCES;
-		}
-		for (i = 0; i < loader_len; i++)
-			loader_str[i] = start[i];
-		loader_str[loader_len] = L'\0';
+	for (pos = 0; pos < argc; pos++) {
+		if (!StrCmp(argv[pos], L"-a")) {
+			pos++;
+			if (pos >= argc) {
+				Print(L"-a requires a memory address\n");
+				status = EFI_INVALID_PARAMETER;
+				goto out;
+			}
 
-		second_stage = loader_str;
-		load_options = start;
-		load_options_size = remaining_size;
+			raw_address = argv[pos];
+			address = (VOID *)strtoul16(raw_address, NULL, 0);
+
+			status = get_secondstage(address, &second_stage_data,
+					&second_stage_size);
+			if (EFI_ERROR(status)) {
+				Print(L"Memory region invalid\n");
+				goto out;
+			}
+			second_stage = NULL;
+			load_options = PoolPrint(L"-a %s", raw_address);
+			load_options_size = StrLen(load_options);
+
+		}
 	}
 
-	return EFI_SUCCESS;
+	if (!second_stage_data) {
+		/*
+		 * Setup the name of the alternative loader and the LoadOptions for
+		 * the loader
+		 */
+		if (loader_len > 0) {
+			loader_str = AllocatePool((loader_len + 1) * sizeof(CHAR16));
+			if (!loader_str) {
+				Print(L"Failed to allocate loader string\n");
+				return EFI_OUT_OF_RESOURCES;
+			}
+			for (i = 0; i < loader_len; i++)
+				loader_str[i] = start[i];
+			loader_str[loader_len] = L'\0';
+
+			second_stage = loader_str;
+			load_options = start;
+			load_options_size = remaining_size;
+		}
+	}
+
+out:
+	FreePool(cmdline);
+	FreePool(argv);
+	return status;
 }
 
 EFI_STATUS efi_main (EFI_HANDLE image_handle, EFI_SYSTEM_TABLE *passed_systab)
