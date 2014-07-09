@@ -43,9 +43,9 @@ LDFLAGS		= -nostdlib -znocombreloc -T $(EFI_LDS) -shared -Bsymbolic -L$(EFI_PATH
 VERSION		= 0.7
 
 TARGET	= shim.efi MokManager.efi.signed fallback.efi.signed
-OBJS	= shim.o cert.o replacements.o version.o
+OBJS	= shim.o cert.o replacements.o version.o options.o android.o
 KEYS	= shim_cert.h ocsp.* ca.* shim.crt shim.csr shim.p12 shim.pem shim.key shim.cer
-SOURCES	= shim.c shim.h include/PeImage.h include/wincert.h include/console.h replacements.c replacements.h version.c version.h
+SOURCES	= shim.c shim.h include/PeImage.h include/wincert.h include/console.h replacements.c replacements.h version.c version.h options.c options.h android.c android.h
 MOK_OBJS = MokManager.o PasswordCrypt.o crypt_blowfish.o
 MOK_SOURCES = MokManager.c shim.h include/console.h PasswordCrypt.c PasswordCrypt.h crypt_blowfish.c crypt_blowfish.h
 FALLBACK_OBJS = fallback.o
