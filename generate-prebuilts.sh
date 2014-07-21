@@ -36,7 +36,7 @@ openssl x509 -outform der -in ${VENDOR_KEY_PAIR}.x509.pem -out vendor.cer
 
 copy_to_prebuilts()
 {
-    PREBUILT_FILES="MokManager.efi.signed shim.efi"
+    PREBUILT_FILES="MokManager.efi.signed shim.efi Cryptlib/OpenSSL/libopenssl.a"
 
     # Sanity check
     have_prebuilt_files=1
@@ -52,6 +52,7 @@ copy_to_prebuilts()
     fi
 
     # All files present. Copy them into prebuilts/
+    rm -rf $PREBUILT_TOP/uefi_shim/linux-$1/
     mkdir -p $PREBUILT_TOP/uefi_shim/linux-$1/
     cp -v MokManager.efi.signed $PREBUILT_TOP/uefi_shim/linux-$1/MokManager.efi
 
@@ -59,6 +60,8 @@ copy_to_prebuilts()
 	    --output shim.efi.signed shim.efi
 
     cp -v shim.efi.signed $PREBUILT_TOP/uefi_shim/linux-$1/shim.efi
+    cp -v Cryptlib/OpenSSL/libopenssl.a $PREBUILT_TOP/uefi_shim/linux-$1/libopenssl.a
+    cp -rf Cryptlib/Include $PREBUILT_TOP/uefi_shim/linux-$1/
 }
 
 add_prebuilts=0
