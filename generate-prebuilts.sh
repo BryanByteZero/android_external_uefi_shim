@@ -112,10 +112,6 @@ if [ "$have_all_files" == "0" ]; then
     exit 1
 fi
 
-# Clean up everything and create prebuilts directory
-mkdir -p $PREBUILT_TOP/linux-x86/uefi_shim
-mkdir -p $PREBUILT_TOP/linux-x86_64/uefi_shim
-
 # Upstream Makefile heavily biased towards Fedora, we need to override
 # a bunch of Make variables
 EFI_PATH_64=$PREBUILT_TOP/gnu-efi/linux-x86_64
