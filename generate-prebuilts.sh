@@ -5,6 +5,12 @@
 # Please make sure you have Android's build system setup first, and lunch
 # target defined.
 #
+# Setting the SHIM_KEY_PAIR variable will cause the shim to be built with the
+# specified shim certificate instead of generating random certificate.
+#
+# Setting VENDOR_KEY_PAIR overrides the default test key to be embedded in the
+# shim. If set to empty string, no vendor cert will be embedded.
+#
 # Also, it requires the pesign utility from
 #     https://github.com/vathpela/pesign
 # You will need to build this by yourself using GCC 4.7.
@@ -26,17 +32,27 @@ if [ -z "$ANDROID_BUILD_TOP" ]; then
 fi
 
 DB_KEY_PAIR=$ANDROID_BUILD_TOP/device/intel/build/testkeys/DB
-VENDOR_KEY_PAIR=$ANDROID_BUILD_TOP/device/intel/build/testkeys/vendor
 
 rm -f db.key
 openssl pkcs8 -nocrypt -inform DER -outform PEM -in ${DB_KEY_PAIR}.pk8 -out db.key
 
-rm -f vendor.cer
-openssl x509 -outform der -in ${VENDOR_KEY_PAIR}.x509.pem -out vendor.cer
+if [ ! -v VENDOR_KEY_PAIR ]; then
+  VENDOR_KEY_PAIR=$ANDROID_BUILD_TOP/device/intel/build/testkeys/vendor
+fi
+if [ -z "$VENDOR_KEY_PAIR" ]; then
+  echo "Using empty vendor key pair"
+  VENDOR_CERT_PARAM=
+else
+  echo "Using vendor key pair $VENDOR_KEY_PAIR"
+  rm -f vendor.cer
+  openssl x509 -outform der -in ${VENDOR_KEY_PAIR}.x509.pem -out vendor.cer
+  VENDOR_CERT_PARAM="VENDOR_CERT_FILE=vendor.cer"
+fi
+
 
 copy_to_prebuilts()
 {
-    PREBUILT_FILES="MokManager.efi.signed shim.efi"
+    PREBUILT_FILES="MokManager.efi.signed shim.efi Cryptlib/OpenSSL/libopenssl.a"
 
     # Sanity check
     have_prebuilt_files=1
@@ -52,6 +68,7 @@ copy_to_prebuilts()
     fi
 
     # All files present. Copy them into prebuilts/
+    rm -rf $PREBUILT_TOP/uefi_shim/linux-$1/
     mkdir -p $PREBUILT_TOP/uefi_shim/linux-$1/
     cp -v MokManager.efi.signed $PREBUILT_TOP/uefi_shim/linux-$1/MokManager.efi
 
@@ -59,6 +76,8 @@ copy_to_prebuilts()
 	    --output shim.efi.signed shim.efi
 
     cp -v shim.efi.signed $PREBUILT_TOP/uefi_shim/linux-$1/shim.efi
+    cp -v Cryptlib/OpenSSL/libopenssl.a $PREBUILT_TOP/uefi_shim/linux-$1/libopenssl.a
+    cp -rf Cryptlib/Include $PREBUILT_TOP/uefi_shim/linux-$1/
 }
 
 add_prebuilts=0
@@ -93,10 +112,6 @@ if [ "$have_all_files" == "0" ]; then
     exit 1
 fi
 
-# Clean up everything and create prebuilts directory
-mkdir -p $PREBUILT_TOP/linux-x86/uefi_shim
-mkdir -p $PREBUILT_TOP/linux-x86_64/uefi_shim
-
 # Upstream Makefile heavily biased towards Fedora, we need to override
 # a bunch of Make variables
 EFI_PATH_64=$PREBUILT_TOP/gnu-efi/linux-x86_64
@@ -115,17 +130,24 @@ MAKE_CMD="make -j12 DEFAULT_LOADER=\\\\\\\\gummiboot.efi"
 $MAKE_CMD ARCH=x86_64 clean
 $MAKE_CMD ARCH=ia32 clean
 
+if [ -v SHIM_KEY_PAIR ]; then
+    echo "Using shim key $SHIM_KEY_PAIR"
+    cp $SHIM_KEY_PAIR.x509.pem shim.crt
+else
+    echo "Using default random cert in shim..."
+fi
+
 # Generate prebuilts for x86_64
 $MAKE_CMD ARCH=x86_64 EFI_PATH=$EFI_PATH_64 LIB_PATH=$LIB_PATH_64 \
           EFI_INCLUDE=$EFI_INCLUDE_64 EFI_CRT_OBJS=$EFI_CRT_OBJS_64 \
-          EFI_LDS=$EFI_LDS_64 VENDOR_CERT_FILE=vendor.cer
+          EFI_LDS=$EFI_LDS_64 $VENDOR_CERT_PARAM
 copy_to_prebuilts x86_64
 $MAKE_CMD ARCH=x86_64 clean
 
 # Generate prebuilts for ia32
 $MAKE_CMD ARCH=ia32 EFI_PATH=$EFI_PATH_32 LIB_PATH=$LIB_PATH_32 \
           EFI_INCLUDE=$EFI_INCLUDE_32 EFI_CRT_OBJS=$EFI_CRT_OBJS_32 \
-          EFI_LDS=$EFI_LDS_32 VENDOR_CERT_FILE=vendor.cer
+          EFI_LDS=$EFI_LDS_32 $VENDOR_CERT_PARAM
 copy_to_prebuilts x86
 $MAKE_CMD ARCH=ia32 clean
 
