@@ -77,7 +77,16 @@ copy_to_prebuilts()
 
     cp -v shim.efi.signed $PREBUILT_TOP/uefi_shim/linux-$1/shim.efi
     cp -v Cryptlib/OpenSSL/libopenssl.a $PREBUILT_TOP/uefi_shim/linux-$1/libopenssl.a
-    cp -rf Cryptlib/Include $PREBUILT_TOP/uefi_shim/linux-$1/
+    cp -v Cryptlib/libcryptlib.a $PREBUILT_TOP/uefi_shim/linux-$1/libcryptlib.a
+}
+
+copy_headers()
+{
+    OPENSSL_INC=$PREBUILT_TOP/uefi_shim/include
+    mkdir -p $OPENSSL_INC
+    cp -rf Cryptlib/Include $OPENSSL_INC
+    cp -rf Cryptlib/Library $OPENSSL_INC
+    cp -rf Cryptlib/*.h $OPENSSL_INC
 }
 
 add_prebuilts=0
@@ -150,6 +159,8 @@ $MAKE_CMD ARCH=ia32 EFI_PATH=$EFI_PATH_32 LIB_PATH=$LIB_PATH_32 \
           EFI_LDS=$EFI_LDS_32 $VENDOR_CERT_PARAM
 copy_to_prebuilts x86
 $MAKE_CMD ARCH=ia32 clean
+
+copy_headers
 
 if [ "$add_prebuilts" == "1" ]; then
     export GIT_DIR=$PREBUILT_TOP/.git
