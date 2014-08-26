@@ -35,10 +35,6 @@ typedef VOID  *FILE;
 // Map all va_xxxx elements to VA_xxx defined in MdePkg/Include/Base.h
 //
 #if !defined(__CC_ARM) // if va_list is not already defined
-#define va_list   VA_LIST
-#define va_arg    VA_ARG
-#define va_start  VA_START
-#define va_end    VA_END
 typedef __builtin_va_list VA_LIST;
 
 #define VA_START(Marker, Parameter)  __builtin_va_start (Marker, Parameter)
@@ -48,11 +44,6 @@ typedef __builtin_va_list VA_LIST;
 #define VA_END(Marker)               __builtin_va_end (Marker)
 
 #define VA_COPY(Dest, Start)         __builtin_va_copy (Dest, Start)
-
-#else // __CC_ARM
-#define va_start(Marker, Parameter)   __va_start(Marker, Parameter)
-#define va_arg(Marker, TYPE)          __va_arg(Marker, TYPE)
-#define va_end(Marker)                ((void)0)
 #endif
 
 //
