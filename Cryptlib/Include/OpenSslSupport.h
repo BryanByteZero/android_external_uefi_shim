@@ -229,6 +229,11 @@ extern FILE  *stdout;
 #define AsciiStrLen(x) strlena(x)
 #define AsciiStrnCmp(s1, s2, len) strncmpa(s1, s2, len)
 
+CHAR8 *ScanMem8(CHAR8 *str, UINTN count, CHAR8 ch);
+CHAR8 *AsciiStrCpy(CHAR8 *Destination, CHAR8 *Source);
+CHAR8 *AsciiStrnCpy(CHAR8 *Destination, CHAR8 *Source, UINTN count);
+UINTN AsciiStrSize(CHAR8 *string);
+
 //
 // Macros that directly map functions to BaseLib, BaseMemoryLib, and DebugLib functions
 //
