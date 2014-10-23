@@ -64,4 +64,27 @@ AsciiStrSize(CHAR8 *string)
 	return strlena(string) + 1;
 }
 
+void *memcpy(void *dest, const void *source, size_t count)
+{
+	CopyMem(dest,source,(UINTN)(count));
+	return dest;
+}
+
+void *memset(void *dest, int ch, size_t count)
+{
+	SetMem(dest,(UINTN)(count),(UINT8)(ch));
+	return dest;
+}
+
+int memcmp(const void *buf1, const void *buf2, size_t count)
+{
+	return (int)(CompareMem(buf1,buf2,(UINTN)(count)));
+}
+
+void *memmove(void *dest, const void *source, size_t count)
+{
+	CopyMem(dest,source,(UINTN)(count));
+	return dest;
+}
+
 
