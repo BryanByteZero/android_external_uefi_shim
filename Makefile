@@ -12,7 +12,11 @@ EFI_INCLUDE	:= /usr/include/efi
 EFI_INCLUDES	= -nostdinc -ICryptlib -ICryptlib/Include -I$(EFI_INCLUDE) -I$(EFI_INCLUDE)/$(ARCH) -I$(EFI_INCLUDE)/protocol -Iinclude
 EFI_PATH	:= /usr/lib64/gnuefi
 
-LIB_GCC		= $(shell $(CC) -print-libgcc-file-name)
+ifeq ($(ARCH),x86_64)
+LIB_GCC         := $(shell $(CC) -print-libgcc-file-name)
+else
+LIB_GCC         := $(shell $(CC) -m32 -print-libgcc-file-name)
+endif
 EFI_LIBS	= -lefi -lgnuefi --start-group Cryptlib/libcryptlib.a Cryptlib/OpenSSL/libopenssl.a --end-group $(LIB_GCC) 
 
 EFI_CRT_OBJS 	= $(EFI_PATH)/crt0-efi-$(ARCH).o
@@ -53,7 +57,7 @@ ifneq ($(origin VENDOR_DBX_FILE), undefined)
 	CFLAGS += -DVENDOR_DBX_FILE=\"$(VENDOR_DBX_FILE)\"
 endif
 
-LDFLAGS		= -nostdlib -znocombreloc -T $(EFI_LDS) -shared -Bsymbolic -L$(EFI_PATH) -L$(LIB_PATH) -LCryptlib -LCryptlib/OpenSSL $(EFI_CRT_OBJS)
+LDFLAGS		= -nostdlib -znocombreloc -T $(EFI_LDS) -shared -Bsymbolic --no-undefined -L$(EFI_PATH) -L$(LIB_PATH) -LCryptlib -LCryptlib/OpenSSL $(EFI_CRT_OBJS)
 
 VERSION		= 0.8
 
