@@ -15,13 +15,10 @@ LOCAL_SRC_FILES :=  Hash/CryptMd4.c \
 		    Cipher/CryptArc4.c \
 		    Rand/CryptRand.c \
 		    Pk/CryptRsaBasic.c \
-		    Pk/CryptRsaExt.c \
 		    Pk/CryptRsaExtNull.c \
-		    Pk/CryptPkcs7Sign.c \
 		    Pk/CryptPkcs7SignNull.c \
 		    Pk/CryptPkcs7Verify.c \
-		    Pk/CryptPkcs7VerifyNull.c \
-		    Pk/CryptDh.c \
+		    Pk/CryptDhNull.c \
 		    Pk/CryptX509.c \
 		    Pk/CryptAuthenticode.c \
 		    Pem/CryptPem.c \

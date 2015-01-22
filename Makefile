@@ -1,10 +1,14 @@
-ARCH		= $(shell uname -m | sed s,i[3456789]86,ia32,)
+CC		= $(CROSS_COMPILE)gcc
+LD		= $(CROSS_COMPILE)ld
+OBJCOPY		= $(CROSS_COMPILE)objcopy
+
+ARCH		= $(shell $(CC) -dumpmachine | cut -f1 -d- | sed s,i[3456789]86,ia32,)
 
 SUBDIRS		= Cryptlib lib
 
 LIB_PATH	= /usr/lib64
 
-EFI_INCLUDE	= /usr/include/efi
+EFI_INCLUDE	:= /usr/include/efi
 EFI_INCLUDES	= -nostdinc -ICryptlib -ICryptlib/Include -I$(EFI_INCLUDE) -I$(EFI_INCLUDE)/$(ARCH) -I$(EFI_INCLUDE)/protocol -Iinclude
 EFI_PATH	:= /usr/lib64/gnuefi
 
@@ -13,16 +17,15 @@ LIB_GCC         := $(shell $(CC) -print-libgcc-file-name)
 else
 LIB_GCC         := $(shell $(CC) -m32 -print-libgcc-file-name)
 endif
-
 EFI_LIBS	= -lefi -lgnuefi --start-group Cryptlib/libcryptlib.a Cryptlib/OpenSSL/libopenssl.a --end-group $(LIB_GCC) 
 
 EFI_CRT_OBJS 	= $(EFI_PATH)/crt0-efi-$(ARCH).o
 EFI_LDS		= elf_$(ARCH)_efi.lds
 
 DEFAULT_LOADER	:= \\\\grub.efi
-CFLAGS		= -ggdb -O3 -fno-stack-protector -fno-strict-aliasing -fpic \
-		  -fshort-wchar -Wall -Werror -mno-red-zone -maccumulate-outgoing-args \
-		  -mno-mmx -mno-sse -fno-builtin \
+CFLAGS		= -ggdb -O0 -fno-stack-protector -fno-strict-aliasing -fpic \
+		  -fshort-wchar -Wall -Wsign-compare -Werror -fno-builtin \
+		  -Werror=sign-compare \
 		  "-DDEFAULT_LOADER=L\"$(DEFAULT_LOADER)\"" \
 		  "-DDEFAULT_LOADER_CHAR=\"$(DEFAULT_LOADER)\"" \
 		  $(EFI_INCLUDES)
@@ -30,12 +33,23 @@ CFLAGS		= -ggdb -O3 -fno-stack-protector -fno-strict-aliasing -fpic \
 ifneq ($(origin OVERRIDE_SECURITY_POLICY), undefined)
 	CFLAGS	+= -DOVERRIDE_SECURITY_POLICY
 endif
+
 ifeq ($(ARCH),x86_64)
-	CFLAGS	+= -DEFI_FUNCTION_WRAPPER -DGNU_EFI_USE_MS_ABI
+	CFLAGS	+= -mno-mmx -mno-sse -mno-red-zone -nostdinc -maccumulate-outgoing-args \
+		-DEFI_FUNCTION_WRAPPER -DGNU_EFI_USE_MS_ABI
 endif
 ifeq ($(ARCH),ia32)
-	CFLAGS	+= -m32
+	CFLAGS	+= -mno-mmx -mno-sse -mno-red-zone -nostdinc -maccumulate-outgoing-args -m32
 endif
+
+ifeq ($(ARCH),aarch64)
+	CFLAGS	+= -ffreestanding -I$(shell $(CC) -print-file-name=include)
+endif
+
+ifeq ($(ARCH),arm)
+	CFLAGS	+= -ffreestanding -I$(shell $(CC) -print-file-name=include)
+endif
+
 ifneq ($(origin VENDOR_CERT_FILE), undefined)
 	CFLAGS += -DVENDOR_CERT_FILE=\"$(VENDOR_CERT_FILE)\"
 endif
@@ -45,12 +59,12 @@ endif
 
 LDFLAGS		= -nostdlib -znocombreloc -T $(EFI_LDS) -shared -Bsymbolic --no-undefined -L$(EFI_PATH) -L$(LIB_PATH) -LCryptlib -LCryptlib/OpenSSL $(EFI_CRT_OBJS)
 
-VERSION		= 0.7
+VERSION		= 0.8
 
 TARGET	= shim.efi MokManager.efi.signed fallback.efi.signed
-OBJS	= shim.o cert.o replacements.o version.o options.o android.o
+OBJS	= shim.o netboot.o cert.o replacements.o version.o
 KEYS	= shim_cert.h ocsp.* ca.* shim.crt shim.csr shim.p12 shim.pem shim.key shim.cer
-SOURCES	= shim.c shim.h include/PeImage.h include/wincert.h include/console.h replacements.c replacements.h version.c version.h options.c options.h android.c android.h
+SOURCES	= shim.c shim.h netboot.c include/PeImage.h include/wincert.h include/console.h replacements.c replacements.h version.c version.h
 MOK_OBJS = MokManager.o PasswordCrypt.o crypt_blowfish.o
 MOK_SOURCES = MokManager.c shim.h include/console.h PasswordCrypt.c PasswordCrypt.h crypt_blowfish.c crypt_blowfish.h
 FALLBACK_OBJS = fallback.o
@@ -77,7 +91,6 @@ version.c : version.c.in
 
 certdb/secmod.db: shim.crt
 	-mkdir certdb
-	certutil -A -n 'my CA' -d certdb/ -t CT,CT,CT -i ca.crt
 	pk12util -d certdb/ -i shim.p12 -W "" -K ""
 	certutil -d certdb/ -A -i shim.crt -n shim -t u
 
@@ -100,26 +113,41 @@ MokManager.so: $(MOK_OBJS) Cryptlib/libcryptlib.a Cryptlib/OpenSSL/libopenssl.a 
 	$(LD) -o $@ $(LDFLAGS) $^ $(EFI_LIBS) lib/lib.a
 
 Cryptlib/libcryptlib.a:
-	$(MAKE) -C Cryptlib EFI_PATH=$(EFI_PATH) EFI_INCLUDE=$(EFI_INCLUDE) ARCH=$(ARCH)
+	$(MAKE) -C Cryptlib
 
 Cryptlib/OpenSSL/libopenssl.a:
-	$(MAKE) -C Cryptlib/OpenSSL EFI_PATH=$(EFI_PATH) EFI_INCLUDE=$(EFI_INCLUDE) ARCH=$(ARCH) 
+	$(MAKE) -C Cryptlib/OpenSSL
 
 lib/lib.a:
-	$(MAKE) -C lib EFI_PATH=$(EFI_PATH) EFI_INCLUDE=$(EFI_INCLUDE) ARCH=$(ARCH)
+	$(MAKE) -C lib
+
+ifeq ($(ARCH),aarch64)
+FORMAT		:= -O binary
+SUBSYSTEM	:= 0xa
+LDFLAGS		+= --defsym=EFI_SUBSYSTEM=$(SUBSYSTEM)
+endif
+
+ifeq ($(ARCH),arm)
+FORMAT		:= -O binary
+SUBSYSTEM	:= 0xa
+LDFLAGS		+= --defsym=EFI_SUBSYSTEM=$(SUBSYSTEM)
+endif
+
+FORMAT		?= --target efi-app-$(ARCH)
 
 %.efi: %.so
-	objcopy -j .text -j .sdata -j .data \
-		-j .dynamic -j .dynsym  -j .rel \
-		-j .rela -j .reloc -j .eh_frame \
+	$(OBJCOPY) -j .text -j .sdata -j .data \
+		-j .dynamic -j .dynsym  -j .rel* \
+		-j .rela* -j .reloc -j .eh_frame \
 		-j .vendor_cert \
-		--target=efi-app-$(ARCH) $^ $@
-	objcopy -j .text -j .sdata -j .data \
-		-j .dynamic -j .dynsym  -j .rel \
-		-j .rela -j .reloc -j .eh_frame \
+		$(FORMAT)  $^ $@
+	$(OBJCOPY) -j .text -j .sdata -j .data \
+		-j .dynamic -j .dynsym  -j .rel* \
+		-j .rela* -j .reloc -j .eh_frame \
 		-j .debug_info -j .debug_abbrev -j .debug_aranges \
 		-j .debug_line -j .debug_str -j .debug_ranges \
-		--target=efi-app-$(ARCH) $^ $@.debug
+		$(FORMAT) $^ $@.debug
+
 
 %.efi.signed: %.efi shim.crt
 	sbsign --key shim.key --cert shim.crt --output $@ $<
@@ -156,3 +184,5 @@ archive: tag
 	@dir=$$PWD; cd /tmp; tar -c --bzip2 -f $$dir/shim-$(VERSION).tar.bz2 shim-$(VERSION)
 	@rm -rf /tmp/shim-$(VERSION)
 	@echo "The archive is in shim-$(VERSION).tar.bz2"
+
+export ARCH CC LD OBJCOPY EFI_INCLUDE

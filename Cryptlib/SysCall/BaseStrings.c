@@ -64,6 +64,7 @@ AsciiStrSize(CHAR8 *string)
 	return strlena(string) + 1;
 }
 
+
 void *memcpy(void *dest, const void *source, size_t count)
 {
 	CopyMem(dest,source,(UINTN)(count));
@@ -86,5 +87,6 @@ void *memmove(void *dest, const void *source, size_t count)
 	CopyMem(dest,source,(UINTN)(count));
 	return dest;
 }
+
 
 
